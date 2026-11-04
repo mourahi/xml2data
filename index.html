@@ -133,7 +133,7 @@
                     </button>
                 </div>
                 <div class="flex-1 overflow-auto bg-white p-2">
-                    <table class="border-collapse" style="min-width: 100%; width: max-content;">
+                    <table class="border-collapse">
                         <tbody id="queryGridBody">
                             <!-- Généré dynamiquement -->
                         </tbody>
@@ -239,6 +239,9 @@
         let appState = {
             fileName: "Modele_Default_SGS.xml",
             tables: {},          // { tableName: [ {col1: val1, ...}, ... ] }
+            tableOrder: [],      // Ordre d'affichage des tables dans le volet de navigation
+            tableSources: {},    // Fichier XML d'origine pour chaque table
+            xmlSources: {},      // Couleur associée à chaque fichier XML importé
             canvasTables: [],    // [ { name: "z_com", x: 50, y: 50, width: 220, height: 200 }, ... ]
             joins: [],           // [ { id, fromTable, fromField, toTable, toField, type: "INNER"|"LEFT"|"RIGHT" }, ... ]
             queryGridRows: [],   // Lignes de la grille de critères style Access (8 lignes)
@@ -331,7 +334,6 @@
 
                 appState.fileName = fileName;
                 document.getElementById('currentProjectTitle').textContent = fileName;
-                appState.tables = {};
 
                 // Parcourir tous les éléments enfants de la racine
                 const root = xmlDoc.documentElement;
@@ -356,30 +358,41 @@
                     tableMap[tagName].push(rowObj);
                 }
 
-                appState.tables = tableMap;
+                const addedTableNames = [];
+                const existingTableNames = [];
+                const xmlSourceName = fileName || 'XML sans nom';
+                const xmlSourceColors = ['#2563eb', '#16a34a', '#c2410c', '#9333ea', '#0891b2', '#be123c', '#4d7c0f', '#b45309'];
+                Object.entries(tableMap).forEach(([tableName, rows]) => {
+                    const existingTable = Object.keys(appState.tables).find(name => name.toLowerCase() === tableName.toLowerCase());
+                    if (existingTable) {
+                        existingTableNames.push(tableName);
+                        return;
+                    }
+                    if (!appState.xmlSources[xmlSourceName]) {
+                        const sourceIndex = Object.keys(appState.xmlSources).length % xmlSourceColors.length;
+                        appState.xmlSources[xmlSourceName] = xmlSourceColors[sourceIndex];
+                    }
+                    appState.tables[tableName] = rows;
+                    if (!appState.tableOrder.includes(tableName)) appState.tableOrder.push(tableName);
+                    appState.tableSources[tableName] = xmlSourceName;
+                    addedTableNames.push(tableName);
+                });
+
                 initQueryGrid();
-
-                // Laisser le canevas vide jusqu'à l'ajout manuel des tables
-                const tableNames = Object.keys(appState.tables);
-                appState.canvasTables = [];
-
-                // Joindre par défaut s'il y a des champs communs (ex: cd_com)
-                appState.joins = [];
-                if (tableNames.includes("z_com") && tableNames.includes("Z_etab")) {
-                    appState.joins.push({
-                        id: 'join_default_1',
-                        fromTable: 'z_com',
-                        fromField: 'cd_com',
-                        toTable: 'Z_etab',
-                        toField: 'CD_COM',
-                        type: 'INNER'
-                    });
-                }
 
                 refreshNavigationPane();
                 renderCanvasTables();
                 renderSvgJoins();
                 updateStatusBar();
+
+                if (existingTableNames.length > 0) {
+                    const messages = [];
+                    if (addedTableNames.length > 0) {
+                        messages.push(`Tables ajoutées : ${addedTableNames.join(', ')}`);
+                    }
+                    messages.push(`Tables déjà présentes, ignorées sans remplacement : ${existingTableNames.join(', ')}`);
+                    alert(messages.join('\n\n'));
+                }
 
             } catch (err) {
                 console.error(err);
@@ -392,7 +405,11 @@
             const listContainer = document.getElementById('navTableList');
             listContainer.innerHTML = '';
 
-            const tableNames = Object.keys(appState.tables);
+            const tableNames = [
+                ...appState.tableOrder.filter(name => Object.prototype.hasOwnProperty.call(appState.tables, name)),
+                ...Object.keys(appState.tables).filter(name => !appState.tableOrder.includes(name))
+            ];
+            appState.tableOrder = tableNames;
             if (tableNames.length === 0) {
                 listContainer.innerHTML = '<div class="text-gray-400 text-center py-4 italic">Aucune table chargée.</div>';
                 return;
@@ -401,21 +418,110 @@
             tableNames.forEach(tName => {
                 const count = appState.tables[tName].length;
                 const isOnCanvas = appState.canvasTables.some(ct => ct.name === tName);
+                const sourceName = appState.tableSources[tName] || '';
+                const sourceColor = appState.xmlSources[sourceName] || '#6b7280';
 
                 const div = document.createElement('div');
-                div.className = "flex items-center justify-between p-1.5 hover:bg-gray-100 rounded cursor-pointer group";
+                div.className = "flex items-center justify-between p-1.5 hover:bg-gray-100 rounded cursor-grab group";
+                div.dataset.tableName = tName;
+                div.title = 'Glisser vers le schéma ou sur une autre table pour réordonner';
+                div.addEventListener('mousedown', event => startNavigationTableDrag(event, tName));
                 div.innerHTML = `
                     <div class="flex items-center space-x-2 truncate">
-                        <i class="fa-solid fa-table text-red-700"></i>
+                        <i class="fa-solid fa-table xml-source-table-icon"></i>
                         <span class="font-medium text-gray-800 truncate" title="${tName}">${tName}</span>
                         <span class="text-[10px] bg-gray-200 px-1.5 py-0.2 rounded text-gray-600">${count} lignes</span>
                     </div>
                     <div class="flex items-center space-x-1">
-                        ${!isOnCanvas ? `<button onclick="addTableToCanvas('${tName}')" title="Ajouter au schéma" class="text-blue-600 hover:text-blue-800 px-1"><i class="fa-solid fa-plus-circle"></i></button>` : `<i class="fa-solid fa-check text-emerald-600 text-[10px]" title="Présente sur le schéma"></i>`}
+                        ${!isOnCanvas ? `<i class="fa-solid fa-grip-vertical text-gray-400" title="Glisser vers le schéma"></i>` : `<i class="fa-solid fa-check text-emerald-600 text-[10px]" title="Présente sur le schéma"></i>`}
+                        <button onclick="deleteTableFromProject('${tName}')" title="Supprimer la table et ses données" aria-label="Supprimer ${tName}" class="text-red-600 hover:text-red-800 px-1"><i class="fa-solid fa-trash-can"></i></button>
                     </div>
                 `;
+                const tableIcon = div.querySelector('.xml-source-table-icon');
+                tableIcon.style.color = sourceColor;
+                tableIcon.title = sourceName ? `Importé depuis ${sourceName}` : 'Fichier XML source inconnu';
                 listContainer.appendChild(div);
             });
+        }
+
+        let draggedNavigationTable = null;
+
+        function startNavigationTableDrag(event, tableName) {
+            if (event.button !== 0 || event.target.closest('button')) return;
+            event.preventDefault();
+            draggedNavigationTable = {
+                tableName,
+                startX: event.clientX,
+                startY: event.clientY,
+                sourceElement: event.currentTarget,
+                active: false
+            };
+            document.addEventListener('mousemove', moveNavigationTableDrag);
+            document.addEventListener('mouseup', finishNavigationTableDrag);
+        }
+
+        function moveNavigationTableDrag(event) {
+            if (!draggedNavigationTable) return;
+            if (!draggedNavigationTable.active && Math.hypot(event.clientX - draggedNavigationTable.startX, event.clientY - draggedNavigationTable.startY) < 5) return;
+
+            event.preventDefault();
+            draggedNavigationTable.active = true;
+            draggedNavigationTable.sourceElement.classList.add('opacity-50');
+            document.body.style.cursor = 'grabbing';
+            document.body.style.userSelect = 'none';
+            clearNavigationTableDropTarget();
+
+            const target = document.elementFromPoint(event.clientX, event.clientY);
+            const canvas = target?.closest('#erdCanvas');
+            const navigationRow = target?.closest('#navTableList > [data-table-name]');
+            if (canvas) canvas.classList.add('ring-2', 'ring-blue-500');
+            else if (navigationRow) navigationRow.classList.add('border-t-2', 'border-blue-600');
+        }
+
+        function finishNavigationTableDrag(event) {
+            if (!draggedNavigationTable) return;
+            const dragState = draggedNavigationTable;
+            const target = document.elementFromPoint(event.clientX, event.clientY);
+            const canvas = target?.closest('#erdCanvas');
+            const navigationRow = target?.closest('#navTableList > [data-table-name]');
+
+            if (dragState.active && canvas) {
+                const canvasRect = canvas.getBoundingClientRect();
+                addTableToCanvas(dragState.tableName, {
+                    x: Math.max(0, event.clientX - canvasRect.left + canvas.scrollLeft - 110),
+                    y: Math.max(0, event.clientY - canvasRect.top + canvas.scrollTop - 20)
+                });
+            } else if (dragState.active && navigationRow) {
+                reorderNavigationTable(dragState.tableName, navigationRow.dataset.tableName);
+            }
+
+            dragState.sourceElement.classList.remove('opacity-50');
+            clearNavigationTableDropTarget();
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            draggedNavigationTable = null;
+            document.removeEventListener('mousemove', moveNavigationTableDrag);
+            document.removeEventListener('mouseup', finishNavigationTableDrag);
+        }
+
+        function clearNavigationTableDropTarget() {
+            document.getElementById('erdCanvas').classList.remove('ring-2', 'ring-blue-500');
+            document.querySelectorAll('#navTableList > div').forEach(item => {
+                item.classList.remove('border-t-2', 'border-blue-600');
+            });
+        }
+
+        function reorderNavigationTable(sourceTable, targetTable) {
+            if (!sourceTable || sourceTable === targetTable) return;
+            const order = [...appState.tableOrder];
+            const sourceIndex = order.indexOf(sourceTable);
+            const targetIndex = order.indexOf(targetTable);
+            if (sourceIndex < 0 || targetIndex < 0) return;
+
+            const [movedTable] = order.splice(sourceIndex, 1);
+            order.splice(targetIndex, 0, movedTable);
+            appState.tableOrder = order;
+            refreshNavigationPane();
         }
 
         // Filtrer les tables dans le panneau de navigation
@@ -482,7 +588,7 @@
             if (e.target.tagName === 'BUTTON') return;
             activeDragTable = tableName;
             const ct = appState.canvasTables.find(t => t.name === tableName);
-            const card = document.querySelector(`[data-table-name="${tableName}"]`);
+            const card = document.querySelector(`.table-card[data-table-name="${tableName}"]`);
             const rect = card.getBoundingClientRect();
             const canvasRect = document.getElementById('erdCanvas').getBoundingClientRect();
 
@@ -501,7 +607,7 @@
             if (ct) {
                 ct.x = Math.max(0, e.clientX - canvasRect.left - dragOffsetX + document.getElementById('erdCanvas').scrollLeft);
                 ct.y = Math.max(0, e.clientY - canvasRect.top - dragOffsetY + document.getElementById('erdCanvas').scrollTop);
-                const card = document.querySelector(`[data-table-name="${activeDragTable}"]`);
+                const card = document.querySelector(`.table-card[data-table-name="${activeDragTable}"]`);
                 if (card) {
                     card.style.left = ct.x + 'px';
                     card.style.top = ct.y + 'px';
@@ -542,7 +648,7 @@
             if (ct) {
                 ct.width = Math.max(180, initialWidth + (e.clientX - initialResizeX));
                 ct.height = Math.max(150, initialHeight + (e.clientY - initialResizeY));
-                const card = document.querySelector(`[data-table-name="${activeResizeTable}"]`);
+                const card = document.querySelector(`.table-card[data-table-name="${activeResizeTable}"]`);
                 if (card) {
                     card.style.width = ct.width + 'px';
                     card.style.height = ct.height + 'px';
@@ -565,6 +671,28 @@
             refreshNavigationPane();
             renderCanvasTables();
             renderSvgJoins();
+        }
+
+        function deleteTableFromProject(tableName) {
+            if (!Object.prototype.hasOwnProperty.call(appState.tables, tableName)) return;
+            if (!confirm(`Supprimer complètement la table « ${tableName} » et toutes ses données ?`)) return;
+
+            delete appState.tables[tableName];
+            appState.tableOrder = appState.tableOrder.filter(name => name !== tableName);
+            delete appState.tableSources[tableName];
+            appState.canvasTables = appState.canvasTables.filter(table => table.name !== tableName);
+            appState.joins = appState.joins.filter(join => join.fromTable !== tableName && join.toTable !== tableName);
+            if (linkingSource && linkingSource.table === tableName) clearFieldJoinSelection();
+            appState.queryGridRows = appState.queryGridRows.map(queryRow => {
+                if (!queryRow.table || queryRow.table.toLowerCase() !== tableName.toLowerCase()) return queryRow;
+                return { field: '', table: '', alias: '', expression: '', show: false, sort: '', criteria: '', or: '', width: queryRow.width };
+            });
+
+            renderQueryGrid();
+            refreshNavigationPane();
+            renderCanvasTables();
+            renderSvgJoins();
+            updateStatusBar();
         }
 
         // Ajouter une table au schéma via modal ou bouton
@@ -595,12 +723,12 @@
             document.getElementById('addTableModal').classList.add('hidden');
         }
 
-        function addTableToCanvas(tableName) {
+        function addTableToCanvas(tableName, position = null) {
             if (!appState.canvasTables.some(t => t.name === tableName)) {
                 appState.canvasTables.push({
                     name: tableName,
-                    x: 100 + (appState.canvasTables.length * 30) % 300,
-                    y: 100 + (appState.canvasTables.length * 30) % 200,
+                    x: position ? position.x : 100 + (appState.canvasTables.length * 30) % 300,
+                    y: position ? position.y : 100 + (appState.canvasTables.length * 30) % 200,
                     width: 220,
                     height: 220
                 });
@@ -613,13 +741,22 @@
         function allowDrop(event) {
             if (event) {
                 event.preventDefault();
+                if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
             }
         }
 
         function dropTableCard(event) {
-            if (event) {
-                event.preventDefault();
-            }
+            if (!event) return;
+            event.preventDefault();
+            const tableName = event.dataTransfer?.getData('application/x-query-table');
+            if (!tableName || !appState.tables[tableName]) return;
+
+            const canvas = document.getElementById('erdCanvas');
+            const canvasRect = canvas.getBoundingClientRect();
+            addTableToCanvas(tableName, {
+                x: Math.max(0, event.clientX - canvasRect.left + canvas.scrollLeft - 110),
+                y: Math.max(0, event.clientY - canvasRect.top + canvas.scrollTop - 20)
+            });
         }
 
         // Lier deux champs entre tables par glisser-déposer, clic ou double-clic
@@ -683,7 +820,7 @@
             applyFieldJoinSelection(tableName, fieldName);
             if (event.dataTransfer) {
                 event.dataTransfer.effectAllowed = 'copy';
-                event.dataTransfer.setData('application/json', JSON.stringify({ tableName, fieldName }));
+                event.dataTransfer.setData('application/json', JSON.stringify({ table: tableName, field: fieldName }));
                 event.dataTransfer.setData('text/plain', `${tableName}.${fieldName}`);
             }
         }
@@ -704,7 +841,11 @@
                 try {
                     const payload = event.dataTransfer.getData('application/json');
                     if (payload) {
-                        source = JSON.parse(payload);
+                        const dragData = JSON.parse(payload);
+                        source = {
+                            table: dragData.table || dragData.tableName,
+                            field: dragData.field || dragData.fieldName
+                        };
                     } else {
                         const plain = event.dataTransfer.getData('text/plain');
                         if (plain && plain.includes('.')) {
@@ -750,8 +891,8 @@
             svg.appendChild(defs);
 
             appState.joins.forEach(join => {
-                const cardFrom = document.querySelector(`[data-table-name="${join.fromTable}"]`);
-                const cardTo = document.querySelector(`[data-table-name="${join.toTable}"]`);
+                const cardFrom = document.querySelector(`.table-card[data-table-name="${join.fromTable}"]`);
+                const cardTo = document.querySelector(`.table-card[data-table-name="${join.toTable}"]`);
 
                 if (!cardFrom || !cardTo) return;
 
@@ -893,6 +1034,7 @@
                 const tr = document.createElement('tr');
                 const label = document.createElement('td');
                 label.className = 'access-grid-header p-1 text-left whitespace-nowrap';
+                label.style.width = '90px';
                 label.style.minWidth = '90px';
                 label.textContent = gridRow.label;
                 tr.appendChild(label);
@@ -901,7 +1043,7 @@
                     const td = document.createElement('td');
                     td.className = `access-grid-cell p-1 ${gridRow.control === 'checkbox' ? 'text-center' : ''}`;
                     td.style.width = `${queryRow.width}px`;
-                    td.style.minWidth = `${queryRow.width}px`;
+                    td.style.minWidth = '0';
                     td.dataset.queryColumn = columnIndex;
                     td.addEventListener('dragover', allowQueryColumnDrop);
                     td.addEventListener('drop', event => dropQueryColumn(event, columnIndex));
@@ -941,7 +1083,7 @@
                             ? (queryRow.expression || queryRow.field)
                             : queryRow[gridRow.key];
                         if (gridRow.key === 'field') {
-                            input.title = 'Syntaxe Access pour renommer : NomAffiche: ChampSource';
+                            input.title = 'Renommer : Alias: ChampSource ou ChampSource: Alias';
                         }
                         input.oninput = updateQueryGrid;
                         input.onchange = updateQueryGrid;
@@ -987,6 +1129,9 @@
                 });
                 tbody.appendChild(tr);
             });
+            const table = tbody.closest('table');
+            table.style.tableLayout = 'fixed';
+            table.style.width = `${90 + appState.queryGridRows.reduce((totalWidth, queryRow) => totalWidth + queryRow.width, 0)}px`;
             syncQueryFieldHighlights();
         }
 
@@ -1013,8 +1158,10 @@
             appState.queryGridRows[columnIndex].width = width;
             document.querySelectorAll(`#queryGridBody td[data-query-column="${columnIndex}"]`).forEach(cell => {
                 cell.style.width = `${width}px`;
-                cell.style.minWidth = `${width}px`;
+                cell.style.minWidth = '0';
             });
+            const table = document.querySelector('#queryGridBody').closest('table');
+            table.style.width = `${90 + appState.queryGridRows.reduce((totalWidth, queryRow) => totalWidth + queryRow.width, 0)}px`;
         }
 
         function stopQueryColumnResize() {
@@ -1057,18 +1204,34 @@
             renderQueryGrid();
         }
 
-        function parseQueryFieldExpression(expression) {
+        function parseQueryFieldExpression(expression, currentTable, currentField) {
+            const resolveReference = reference => {
+                const parts = reference.trim().split('.').map(part => part.trim().replace(/^\[|\]$/g, ''));
+                const fieldName = parts.pop() || '';
+                const requestedTable = parts.join('.') || currentTable;
+                const tableName = Object.keys(appState.tables).find(name => name.toLowerCase() === requestedTable.toLowerCase()) || requestedTable;
+                const fieldNames = Object.keys((appState.tables[tableName] || [])[0] || {});
+                const actualField = fieldNames.find(name => name.toLowerCase() === fieldName.toLowerCase());
+                return { field: actualField || fieldName, table: tableName, exists: Boolean(actualField) };
+            };
+
             const separatorIndex = expression.indexOf(':');
-            const alias = separatorIndex >= 0
-                ? expression.slice(0, separatorIndex).trim().replace(/^\[|\]$/g, '')
-                : '';
-            const sourceExpression = (separatorIndex >= 0 ? expression.slice(separatorIndex + 1) : expression).trim();
-            const sourceParts = sourceExpression.split('.').map(part => part.trim().replace(/^\[|\]$/g, ''));
-            const field = sourceParts.pop() || '';
+            if (separatorIndex < 0) {
+                const source = resolveReference(expression);
+                return { alias: '', field: source.field, table: source.table };
+            }
+
+            const left = resolveReference(expression.slice(0, separatorIndex));
+            const right = resolveReference(expression.slice(separatorIndex + 1));
+            const leftIsCurrentField = currentField && left.field.toLowerCase() === currentField.toLowerCase();
+            const rightIsCurrentField = currentField && right.field.toLowerCase() === currentField.toLowerCase();
+            const sourceIsLeft = leftIsCurrentField || (left.exists && !right.exists && !rightIsCurrentField);
+            const source = sourceIsLeft ? left : right;
+            const alias = sourceIsLeft ? right.field : left.field;
             return {
                 alias,
-                field,
-                table: sourceParts.join('.')
+                field: source.field,
+                table: source.table
             };
         }
 
@@ -1103,7 +1266,7 @@
                 appState.queryGridRows[row][col] = e.target.value;
                 if (col === 'field') {
                     const queryRow = appState.queryGridRows[row];
-                    const parsedExpression = parseQueryFieldExpression(e.target.value);
+                    const parsedExpression = parseQueryFieldExpression(e.target.value, queryRow.table, queryRow.field);
                     queryRow.expression = e.target.value;
                     queryRow.field = parsedExpression.field;
                     queryRow.alias = parsedExpression.alias;
