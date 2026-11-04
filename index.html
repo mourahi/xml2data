@@ -29,6 +29,11 @@
         .join-line { stroke: #434343; stroke-width: 2; cursor: pointer; transition: stroke 0.2s; }
         .join-line:hover { stroke: #005a9e; stroke-width: 3; }
         .join-arrow { fill: #434343; }
+        .xml-loading-indeterminate { width: 35%; animation: xml-loading-sweep 1.3s ease-in-out infinite; }
+        @keyframes xml-loading-sweep {
+            from { transform: translateX(-110%); }
+            to { transform: translateX(300%); }
+        }
     </style>
 </head>
 <body class="h-full flex flex-col bg-[#f0f0f0] overflow-hidden text-xs">
@@ -49,43 +54,36 @@
 
     <!-- Ruban MS Access (Ribbon) -->
     <div class="access-ribbon flex flex-col select-none">
-        <div class="flex bg-[#f3f3f3] border-b border-[#e1dfdd] px-2">
-            <div class="access-tab active" onclick="switchRibbonTab('create')">Créer / Requêtes</div>
-            <div class="access-tab" onclick="switchRibbonTab('external')">Données Externes (XML)</div>
-            <div class="access-tab" onclick="switchRibbonTab('database')">Outils de Base de Données</div>
-        </div>
-
-        <!-- Tab Content: Créer -->
         <div id="tab-create" class="flex items-center px-3 py-2 space-x-4 bg-white">
             <div class="flex flex-col items-center border-r pr-4 border-gray-200">
                 <button onclick="document.getElementById('xmlFileInput').click()" class="flex flex-col items-center hover:bg-gray-100 p-1.5 rounded text-gray-700">
                     <i class="fa-solid fa-folder-open text-xl text-amber-600 mb-1"></i>
-                    <span>Ouvrir XML</span>
+                    <span>Ajouter XML</span>
                 </button>
                 <input type="file" id="xmlFileInput" accept=".xml" class="hidden" onchange="handleFileSelect(event)">
             </div>
             <div class="flex flex-col items-center border-r pr-4 border-gray-200">
-                <button onclick="loadDefaultSGSXML()" class="flex flex-col items-center hover:bg-gray-100 p-1.5 rounded text-gray-700">
-                    <i class="fa-solid fa-wand-magic-sparkles text-xl text-purple-600 mb-1"></i>
-                    <span>Exemple SGS</span>
+                <button onclick="deleteAllTables()" class="flex flex-col items-center hover:bg-red-50 p-1.5 rounded text-gray-700">
+                    <i class="fa-solid fa-trash-can text-xl text-red-600 mb-1"></i>
+                    <span>Supprimer toutes les tables</span>
                 </button>
             </div>
             <div class="flex flex-col items-center border-r pr-4 border-gray-200">
-                <button onclick="openAddTableModal()" class="flex flex-col items-center hover:bg-gray-100 p-1.5 rounded text-gray-700">
-                    <i class="fa-solid fa-table-columns text-xl text-blue-600 mb-1"></i>
-                    <span>Ajouter Table au Schéma</span>
+                <button onclick="startNewQuery()" class="flex flex-col items-center hover:bg-gray-100 p-1.5 rounded text-gray-700">
+                    <i class="fa-solid fa-file-circle-plus text-xl text-emerald-600 mb-1"></i>
+                    <span>Nouvelle requête</span>
                 </button>
             </div>
             <div class="flex flex-col items-center border-r pr-4 border-gray-200">
-                <button onclick="executeAndExportExcel()" class="flex flex-col items-center hover:bg-gray-100 p-1.5 rounded text-gray-700">
-                    <i class="fa-solid fa-file-excel text-xl text-emerald-600 mb-1"></i>
-                    <span>Exporter Excel (.xlsx)</span>
+                <button id="executeQueryButton" onclick="runQueryPreview()" class="flex flex-col items-center bg-red-700 hover:bg-red-800 text-white p-1.5 rounded font-semibold shadow-sm disabled:opacity-60 disabled:cursor-wait">
+                    <i class="fa-solid fa-play text-xl mb-1"></i>
+                    <span>Exécuter la requête</span>
                 </button>
             </div>
             <div class="flex flex-col items-center">
-                <button onclick="exportJSONProject()" class="flex flex-col items-center hover:bg-gray-100 p-1.5 rounded text-gray-700">
-                    <i class="fa-solid fa-code text-xl text-cyan-600 mb-1"></i>
-                    <span>JSON</span>
+                <button id="saveQueryButton" onclick="saveCurrentQuery()" disabled title="Aucune modification à enregistrer" class="flex flex-col items-center p-1.5 rounded text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+                    <i class="fa-solid fa-floppy-disk text-xl text-blue-600 mb-1"></i>
+                    <span>Enregistrer la requête</span>
                 </button>
             </div>
         </div>
@@ -100,14 +98,34 @@
                 <span>TOUS LES OBJETS XML</span>
                 <button onclick="refreshNavigationPane()" class="text-gray-600 hover:text-black"><i class="fa-solid fa-rotate"></i></button>
             </div>
-            <div class="p-2 border-b border-[#c8c6c4]">
-                <div class="relative">
-                    <i class="fa-solid fa-search absolute left-2 top-2 text-gray-400"></i>
-                    <input type="text" id="navSearchInput" oninput="filterNavTables()" placeholder="Rechercher table..." class="w-full pl-7 pr-2 py-1 bg-white border border-[#8a8886] rounded text-xs focus:outline-none focus:border-blue-600">
+            <div class="flex bg-[#f3f3f3] border-b border-[#c8c6c4]" role="tablist" aria-label="Objets">
+                <button id="tablesTab" type="button" role="tab" aria-selected="true" aria-controls="navTablesPanel" onclick="switchNavigationTab('tables')" class="flex-1 px-3 py-1.5 font-semibold text-red-700 border-b-2 border-red-700 bg-white">Tables (<span id="tableTabCount">0</span>)</button>
+                <button id="queriesTab" type="button" role="tab" aria-selected="false" aria-controls="navQueriesPanel" onclick="switchNavigationTab('queries')" class="flex-1 px-3 py-1.5 text-gray-700 border-b-2 border-transparent hover:bg-white">Requêtes (<span id="queryTabCount">0</span>)</button>
+            </div>
+            <div id="navTablesPanel" role="tabpanel" aria-labelledby="tablesTab" class="flex-1 min-h-0 flex flex-col">
+                <div class="p-2 border-b border-[#c8c6c4]">
+                    <div class="relative">
+                        <i class="fa-solid fa-search absolute left-2 top-2 text-gray-400"></i>
+                        <input type="text" id="navSearchInput" oninput="filterNavTables()" placeholder="Rechercher table..." class="w-full pl-7 pr-2 py-1 bg-white border border-[#8a8886] rounded text-xs focus:outline-none focus:border-blue-600">
+                    </div>
+                </div>
+                <div id="tableSelectionToolbar" class="hidden px-2 py-1.5 bg-red-50 border-b border-red-200 flex items-center justify-between gap-2">
+                    <span id="tableSelectionCount" class="text-gray-700">0 sélectionnée</span>
+                    <div class="flex items-center gap-2">
+                        <button id="deleteSelectedTablesButton" onclick="deleteSelectedTables()" disabled class="bg-red-700 hover:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed text-white px-2 py-1 rounded text-xs font-semibold">
+                            <i class="fa-solid fa-trash-can mr-1"></i>Supprimer
+                        </button>
+                        <button onclick="clearTableSelection()" class="text-gray-600 hover:text-black px-1" title="Annuler la sélection" aria-label="Annuler la sélection"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+                <div id="navTableList" class="flex-1 min-h-0 overflow-y-auto p-1 space-y-0.5 bg-white">
+                    <div class="text-gray-400 text-center py-4 italic">Aucune table chargée.</div>
                 </div>
             </div>
-            <div id="navTableList" class="flex-1 overflow-y-auto p-1 space-y-0.5 bg-white">
-                <div class="text-gray-400 text-center py-4 italic">Aucune table chargée.</div>
+            <div id="navQueriesPanel" role="tabpanel" aria-labelledby="queriesTab" class="hidden flex-1 min-h-0 flex flex-col">
+                <div id="savedQueryList" class="flex-1 min-h-0 overflow-y-auto p-1 space-y-0.5 bg-white">
+                    <div class="text-gray-400 text-center py-3 italic">Aucune requête enregistrée.</div>
+                </div>
             </div>
         </div>
 
@@ -128,9 +146,6 @@
             <div class="h-56 border-t-2 border-[#c8c6c4] bg-[#f3f2f1] flex flex-col select-none">
                 <div class="bg-[#e1dfdd] px-3 py-1 font-bold text-gray-700 border-b border-[#c8c6c4] flex items-center justify-between">
                     <span><i class="fa-solid fa-table-cells text-red-700 mr-1.5"></i> Grille de Création de Requête & Filtres (Access Style)</span>
-                    <button onclick="runQueryPreview()" class="bg-red-700 hover:bg-red-800 text-white px-3 py-0.5 rounded text-xs font-semibold shadow-sm">
-                        <i class="fa-solid fa-play mr-1"></i> Exécuter Requête
-                    </button>
                 </div>
                 <div class="flex-1 overflow-auto bg-white p-2">
                     <table class="border-collapse">
@@ -157,6 +172,45 @@
         </div>
     </div>
 
+    <div id="xmlLoadingOverlay" class="fixed inset-0 bg-black/40 z-[60] hidden flex items-center justify-center" role="status" aria-live="polite">
+        <div class="w-80 max-w-[90vw] bg-white rounded shadow-2xl border border-gray-400 p-5">
+            <div class="flex items-center gap-3 mb-4">
+                <i class="fa-solid fa-spinner animate-spin text-xl text-red-700"></i>
+                <span id="xmlLoadingMessage" class="font-semibold text-gray-800">Lecture du fichier XML...</span>
+            </div>
+            <div class="h-2 overflow-hidden rounded bg-gray-200">
+                <div id="xmlLoadingProgress" class="h-full bg-red-700 transition-[width] duration-150"></div>
+            </div>
+            <div id="xmlLoadingPercent" class="mt-2 text-right text-gray-500">0%</div>
+        </div>
+    </div>
+
+    <div id="queryExecutionOverlay" class="fixed inset-0 bg-black/40 z-[60] hidden flex items-center justify-center" role="status" aria-live="polite">
+        <div class="w-96 max-w-[90vw] bg-white rounded shadow-2xl border border-gray-400 p-5">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-spinner animate-spin text-xl text-red-700"></i>
+                <div>
+                    <div class="font-semibold text-gray-800">Exécution de la requête...</div>
+                    <div class="mt-1 text-gray-600">Le traitement peut prendre quelques instants.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="xmlImportNotification" class="fixed inset-0 z-[70] hidden items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="xmlImportNotificationTitle">
+        <div class="w-96 max-w-full overflow-hidden rounded border border-gray-300 bg-white shadow-2xl">
+            <div class="flex items-center gap-3 border-b border-gray-200 px-4 py-3">
+                <i class="fa-solid fa-circle-check text-xl text-emerald-600"></i>
+                <div id="xmlImportNotificationTitle" class="font-semibold text-gray-900">Import XML réussi</div>
+                <button type="button" onclick="hideXmlImportNotification()" class="ml-auto text-gray-500 hover:text-black" aria-label="Fermer la fenêtre"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="xmlImportNotificationDetails" class="break-words px-4 py-4 text-gray-700"></div>
+            <div class="flex justify-end border-t border-gray-200 bg-gray-50 px-4 py-3">
+                <button type="button" onclick="hideXmlImportNotification()" class="rounded bg-emerald-700 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800">OK</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal Modal Propriétés de Jointure (MS Access Join Properties) -->
     <div id="joinModal" class="fixed inset-0 bg-black/40 z-50 hidden flex items-center justify-center">
         <div class="bg-white rounded shadow-2xl w-96 border border-gray-400 overflow-hidden">
@@ -168,14 +222,14 @@
                 <div class="text-gray-700 text-xs" id="joinModalDesc">Sélectionnez le type de jointure entre les tables :</div>
                 <div class="space-y-2">
                     <label class="flex items-start space-x-2 p-2 rounded hover:bg-gray-100 cursor-pointer border border-transparent hover:border-gray-300">
-                        <input type="radio" name="joinType" value="INNER" checked class="mt-0.5">
+                        <input type="radio" name="joinType" value="INNER" class="mt-0.5">
                         <div>
                             <span class="font-bold text-gray-900 block">1. INNER JOIN (Équijointure)</span>
                             <span class="text-gray-500 text-[11px]">N'inclure que les lignes où les champs joints sont égaux dans les deux tables.</span>
                         </div>
                     </label>
                     <label class="flex items-start space-x-2 p-2 rounded hover:bg-gray-100 cursor-pointer border border-transparent hover:border-gray-300">
-                        <input type="radio" name="joinType" value="LEFT" class="mt-0.5">
+                        <input type="radio" name="joinType" value="LEFT" checked class="mt-0.5">
                         <div>
                             <span class="font-bold text-gray-900 block">2. LEFT JOIN (Tous les enregistrements de A)</span>
                             <span class="text-gray-500 text-[11px]">Inclure tous les enregistrements de la première table et uniquement les correspondances de la seconde.</span>
@@ -233,6 +287,23 @@
         </div>
     </div>
 
+    <div id="queryNameModal" class="fixed inset-0 bg-black/40 z-50 hidden flex items-center justify-center">
+        <form class="bg-white rounded shadow-2xl w-96 border border-gray-400 overflow-hidden" onsubmit="saveQueryFromDialog(event)">
+            <div class="bg-[#b91c1c] text-white px-3 py-2 flex items-center justify-between font-bold">
+                <span>Enregistrer la requête</span>
+                <button type="button" onclick="closeQueryNameModal()" aria-label="Fermer"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-4">
+                <label for="queryNameInput" class="block mb-2 text-gray-700">Nom de la requête</label>
+                <input id="queryNameInput" type="text" required maxlength="100" class="w-full border border-gray-400 px-2 py-1.5 focus:outline-none focus:border-blue-600" autocomplete="off">
+            </div>
+            <div class="bg-gray-100 px-4 py-2 flex justify-end gap-2 border-t border-gray-300">
+                <button type="button" onclick="closeQueryNameModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-3 py-1 rounded text-xs">Annuler</button>
+                <button type="submit" class="bg-red-700 hover:bg-red-800 text-white px-3 py-1 rounded text-xs font-semibold">Enregistrer</button>
+            </div>
+        </form>
+    </div>
+
     <!-- Script Application Logic -->
     <script>
         // État Global de l'application
@@ -247,6 +318,14 @@
             queryGridRows: [],   // Lignes de la grille de critères style Access (8 lignes)
             activeJoinId: null   // ID de la liaison actuellement cliquée
         };
+        const QUERY_STORAGE_KEY = 'xml2data.savedQueries';
+        const QUERY_DRAFT_KEY = 'xml2data.queryDraft';
+        let savedQueries = [];
+        let activeQueryId = null;
+        let savedQueryDefinition = '';
+        let skipUnloadWarning = false;
+        let pendingCloseAfterSave = false;
+        let pendingNewQueryAfterSave = false;
 
         // Données d'exemple XML par défaut (SGS Morocco)
         const DEFAULT_SGS_XML = `<?xml version="1.0" encoding="utf-8"?>
@@ -300,7 +379,243 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             initQueryGrid();
-            loadXMLFromString(DEFAULT_SGS_XML, "Modele_Default_SGS.xml");
+                loadXMLFromString(DEFAULT_SGS_XML, "Modele_Default_SGS.xml", false);
+            loadSavedQueries();
+            savedQueryDefinition = getQueryDefinition();
+            restoreQueryDraft();
+            document.addEventListener('input', updateSaveButtonState);
+            document.addEventListener('change', updateSaveButtonState);
+            document.addEventListener('click', updateSaveButtonState);
+            document.addEventListener('dblclick', updateSaveButtonState);
+            document.addEventListener('mouseup', updateSaveButtonState);
+            document.addEventListener('dragend', updateSaveButtonState);
+            updateSaveButtonState();
+        });
+
+        function getQueryDefinition() {
+            return JSON.stringify({
+                canvasTables: appState.canvasTables,
+                joins: appState.joins,
+                queryGridRows: appState.queryGridRows
+            });
+        }
+
+        function updateSaveButtonState() {
+            const button = document.getElementById('saveQueryButton');
+            if (!button) return;
+            const hasChanges = getQueryDefinition() !== savedQueryDefinition;
+            button.disabled = !hasChanges;
+            button.title = hasChanges ? 'Enregistrer les modifications de la requête' : 'Aucune modification à enregistrer';
+        }
+
+        function loadSavedQueries() {
+            try {
+                const storedQueries = JSON.parse(localStorage.getItem(QUERY_STORAGE_KEY) || '[]');
+                savedQueries = Array.isArray(storedQueries) ? storedQueries : [];
+            } catch (error) {
+                savedQueries = [];
+            }
+            renderSavedQueries();
+        }
+
+        function persistSavedQueries() {
+            try {
+                localStorage.setItem(QUERY_STORAGE_KEY, JSON.stringify(savedQueries));
+                return true;
+            } catch (error) {
+                alert("Impossible d'enregistrer les requêtes dans le stockage du navigateur.");
+                return false;
+            }
+        }
+
+        function renderSavedQueries() {
+            const list = document.getElementById('savedQueryList');
+            if (!list) return;
+            updateNavigationTabCounts();
+            list.innerHTML = '';
+            if (savedQueries.length === 0) {
+                list.innerHTML = '<div class="text-gray-400 text-center py-3 italic">Aucune requête enregistrée.</div>';
+                return;
+            }
+
+            savedQueries.forEach(query => {
+                const row = document.createElement('div');
+                row.className = `flex items-center justify-between p-1.5 rounded group ${query.id === activeQueryId ? 'bg-red-50 text-red-800' : 'hover:bg-gray-100 text-gray-800'}`;
+                const openButton = document.createElement('button');
+                openButton.type = 'button';
+                openButton.className = 'flex min-w-0 items-center gap-2 text-left';
+                openButton.title = `Ouvrir la requête ${query.name}`;
+                openButton.innerHTML = '<i class="fa-solid fa-table-list text-red-700"></i>';
+                const name = document.createElement('span');
+                name.className = 'truncate';
+                name.textContent = query.name;
+                openButton.appendChild(name);
+                openButton.addEventListener('click', () => loadSavedQuery(query.id));
+
+                const deleteButton = document.createElement('button');
+                deleteButton.type = 'button';
+                deleteButton.className = 'px-1 text-gray-500 hover:text-red-700';
+                deleteButton.title = `Supprimer la requête ${query.name}`;
+                deleteButton.setAttribute('aria-label', `Supprimer ${query.name}`);
+                deleteButton.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+                deleteButton.addEventListener('click', () => deleteSavedQuery(query.id));
+                row.append(openButton, deleteButton);
+                list.appendChild(row);
+            });
+        }
+
+        function saveCurrentQuery() {
+            let query = savedQueries.find(item => item.id === activeQueryId);
+            if (!query) {
+                openQueryNameModal();
+                return false;
+            }
+
+            return persistQuery(query);
+        }
+
+        function openQueryNameModal() {
+            const modal = document.getElementById('queryNameModal');
+            modal.classList.remove('hidden');
+            const input = document.getElementById('queryNameInput');
+            input.value = '';
+            input.focus();
+        }
+
+        function closeQueryNameModal() {
+            document.getElementById('queryNameModal').classList.add('hidden');
+            pendingCloseAfterSave = false;
+            pendingNewQueryAfterSave = false;
+        }
+
+        function saveQueryFromDialog(event) {
+            event.preventDefault();
+            const name = document.getElementById('queryNameInput').value.trim();
+            if (!name) return;
+            let query = savedQueries.find(item => item.name.toLowerCase() === name.toLowerCase());
+            if (query && !confirm(`La requête « ${query.name} » existe déjà. La remplacer ?`)) return;
+            if (!query) {
+                query = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, name };
+                savedQueries.push(query);
+            }
+            if (persistQuery(query)) {
+                document.getElementById('queryNameModal').classList.add('hidden');
+                if (pendingCloseAfterSave) {
+                    pendingCloseAfterSave = false;
+                    window.close();
+                } else if (pendingNewQueryAfterSave) {
+                    pendingNewQueryAfterSave = false;
+                    resetToNewQuery();
+                }
+            }
+        }
+
+        function startNewQuery() {
+            if (getQueryDefinition() !== savedQueryDefinition) {
+                if (confirm('Enregistrer les modifications avant de créer une nouvelle requête ?')) {
+                    if (savedQueries.some(query => query.id === activeQueryId)) {
+                        if (!saveCurrentQuery()) return;
+                        resetToNewQuery();
+                    } else {
+                        pendingNewQueryAfterSave = true;
+                        openQueryNameModal();
+                    }
+                    return;
+                }
+                if (!confirm('Abandonner les modifications et créer une nouvelle requête ?')) return;
+            }
+            resetToNewQuery();
+        }
+
+        function resetToNewQuery() {
+            appState.canvasTables = [];
+            appState.joins = [];
+            activeQueryId = null;
+            initQueryGrid();
+            savedQueryDefinition = getQueryDefinition();
+            updateSaveButtonState();
+            refreshNavigationPane();
+            renderCanvasTables();
+            renderSvgJoins();
+            document.getElementById('statusBarMode').textContent = 'Nouvelle requête';
+        }
+
+        function persistQuery(query) {
+            Object.assign(query, JSON.parse(getQueryDefinition()), { updatedAt: new Date().toISOString() });
+            if (!persistSavedQueries()) return false;
+            activeQueryId = query.id;
+            savedQueryDefinition = getQueryDefinition();
+            updateSaveButtonState();
+            localStorage.removeItem(QUERY_DRAFT_KEY);
+            renderSavedQueries();
+            document.getElementById('statusBarMode').textContent = `Requête « ${query.name} » enregistrée`;
+            return true;
+        }
+
+        function loadSavedQuery(queryId) {
+            const query = savedQueries.find(item => item.id === queryId);
+            if (!query) return;
+            if (getQueryDefinition() !== savedQueryDefinition && !confirm('Les modifications non enregistrées seront perdues. Continuer ?')) return;
+
+            appState.canvasTables = query.canvasTables || [];
+            appState.joins = query.joins || [];
+            appState.queryGridRows = query.queryGridRows || [];
+            if (appState.queryGridRows.length === 0) initQueryGrid();
+            else renderQueryGrid();
+            activeQueryId = query.id;
+            savedQueryDefinition = getQueryDefinition();
+            updateSaveButtonState();
+            refreshNavigationPane();
+            renderCanvasTables();
+            renderSvgJoins();
+            renderSavedQueries();
+        }
+
+        function deleteSavedQuery(queryId) {
+            const query = savedQueries.find(item => item.id === queryId);
+            if (!query || !confirm(`Supprimer la requête « ${query.name} » ?`)) return;
+            savedQueries = savedQueries.filter(item => item.id !== queryId);
+            if (activeQueryId === queryId) activeQueryId = null;
+            persistSavedQueries();
+            renderSavedQueries();
+        }
+
+        function restoreQueryDraft() {
+            let draft;
+            try {
+                draft = JSON.parse(localStorage.getItem(QUERY_DRAFT_KEY) || 'null');
+            } catch (error) {
+                localStorage.removeItem(QUERY_DRAFT_KEY);
+                return;
+            }
+            if (!draft || !confirm('Une requête non enregistrée a été récupérée. Restaurer les modifications ?')) {
+                localStorage.removeItem(QUERY_DRAFT_KEY);
+                return;
+            }
+            appState.canvasTables = draft.canvasTables || [];
+            appState.joins = draft.joins || [];
+            appState.queryGridRows = draft.queryGridRows || appState.queryGridRows;
+            activeQueryId = draft.activeQueryId || null;
+            renderQueryGrid();
+            refreshNavigationPane();
+            renderCanvasTables();
+            renderSvgJoins();
+        }
+
+        window.addEventListener('beforeunload', event => {
+            if (skipUnloadWarning || getQueryDefinition() === savedQueryDefinition) return;
+            try {
+                localStorage.setItem(QUERY_DRAFT_KEY, JSON.stringify({
+                    canvasTables: appState.canvasTables,
+                    joins: appState.joins,
+                    queryGridRows: appState.queryGridRows,
+                    activeQueryId
+                }));
+            } catch (error) {
+                // L'avertissement de fermeture reste actif même si le stockage est indisponible.
+            }
+            event.preventDefault();
+            event.returnValue = '';
         });
 
         // Charger l'exemple SGS par défaut
@@ -313,14 +628,60 @@
             const file = event.target.files[0];
             if (!file) return;
             const reader = new FileReader();
-            reader.onload = function(e) {
-                loadXMLFromString(e.target.result, file.name);
+            showXmlLoading('Lecture du fichier XML...', 0);
+            reader.onprogress = progressEvent => {
+                if (progressEvent.lengthComputable) {
+                    showXmlLoading('Lecture du fichier XML...', progressEvent.loaded / progressEvent.total * 100);
+                }
             };
-            reader.readAsText(file, "UTF-8");
+            reader.onload = function(e) {
+                showXmlLoading('Analyse du XML en cours...', null);
+                requestAnimationFrame(() => {
+                    setTimeout(() => {
+                        try {
+                            loadXMLFromString(e.target.result, file.name);
+                        } finally {
+                            hideXmlLoading();
+                        }
+                    }, 0);
+                });
+            };
+            reader.onerror = function() {
+                hideXmlLoading();
+                alert("Impossible de lire ce fichier XML.");
+            };
+            reader.onabort = hideXmlLoading;
+            try {
+                reader.readAsText(file, "UTF-8");
+            } catch (error) {
+                hideXmlLoading();
+                alert("Impossible de lire ce fichier XML : " + error.message);
+            }
+            event.target.value = '';
+        }
+
+        function showXmlLoading(message, progress) {
+            document.getElementById('xmlLoadingOverlay').classList.remove('hidden');
+            document.getElementById('xmlLoadingMessage').textContent = message;
+            const progressBar = document.getElementById('xmlLoadingProgress');
+            const progressText = document.getElementById('xmlLoadingPercent');
+            if (progress === null) {
+                progressBar.classList.add('xml-loading-indeterminate');
+                progressBar.style.width = '';
+                progressText.textContent = 'Analyse';
+                return;
+            }
+            progressBar.classList.remove('xml-loading-indeterminate');
+            progressBar.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+            progressText.textContent = `${Math.round(progress)}%`;
+        }
+
+        function hideXmlLoading() {
+            document.getElementById('xmlLoadingOverlay').classList.add('hidden');
         }
 
         // Parser le XML avec DOMParser et peupler l'application
-        function loadXMLFromString(xmlString, fileName) {
+        function loadXMLFromString(xmlString, fileName, showNotification = true) {
             try {
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(xmlString, "text/xml");
@@ -385,13 +746,19 @@
                 renderSvgJoins();
                 updateStatusBar();
 
-                if (existingTableNames.length > 0) {
-                    const messages = [];
+                if (showNotification) {
+                    const details = [];
                     if (addedTableNames.length > 0) {
-                        messages.push(`Tables ajoutées : ${addedTableNames.join(', ')}`);
+                        details.push(`${addedTableNames.length} table(s) ajoutée(s) : ${addedTableNames.join(', ')}`);
                     }
-                    messages.push(`Tables déjà présentes, ignorées sans remplacement : ${existingTableNames.join(', ')}`);
-                    alert(messages.join('\n\n'));
+                    if (existingTableNames.length > 0) {
+                        details.push(`${existingTableNames.length} table(s) déjà présente(s), ignorée(s) : ${existingTableNames.join(', ')}`);
+                    }
+                    if (addedTableNames.length === 0 && existingTableNames.length === 0) {
+                        details.push('Aucune table trouvée dans le fichier.');
+                    }
+                    details.unshift(`Fichier : ${fileName}`);
+                    showXmlImportNotification(details.join(' · '));
                 }
 
             } catch (err) {
@@ -400,9 +767,31 @@
             }
         }
 
+        function showXmlImportNotification(details) {
+            document.getElementById('xmlImportNotificationDetails').textContent = details;
+            document.getElementById('xmlImportNotification').classList.remove('hidden');
+            document.getElementById('xmlImportNotification').classList.add('flex');
+        }
+
+        function hideXmlImportNotification() {
+            document.getElementById('xmlImportNotification').classList.add('hidden');
+            document.getElementById('xmlImportNotification').classList.remove('flex');
+        }
+
         // Rafraîchir le volet de navigation (gauche)
+        let tableSelectionMode = false;
+        let selectedTableNames = new Set();
+
+        function updateNavigationTabCounts() {
+            const tableCount = document.getElementById('tableTabCount');
+            const queryCount = document.getElementById('queryTabCount');
+            if (tableCount) tableCount.textContent = Object.keys(appState.tables).length;
+            if (queryCount) queryCount.textContent = savedQueries.length;
+        }
+
         function refreshNavigationPane() {
             const listContainer = document.getElementById('navTableList');
+            updateNavigationTabCounts();
             listContainer.innerHTML = '';
 
             const tableNames = [
@@ -412,6 +801,7 @@
             appState.tableOrder = tableNames;
             if (tableNames.length === 0) {
                 listContainer.innerHTML = '<div class="text-gray-400 text-center py-4 italic">Aucune table chargée.</div>';
+                updateTableSelectionToolbar();
                 return;
             }
 
@@ -422,49 +812,109 @@
                 const sourceColor = appState.xmlSources[sourceName] || '#6b7280';
 
                 const div = document.createElement('div');
-                div.className = "flex items-center justify-between p-1.5 hover:bg-gray-100 rounded cursor-grab group";
+                div.className = `flex items-center justify-between p-1.5 rounded cursor-grab group ${selectedTableNames.has(tName) ? 'bg-blue-50' : 'hover:bg-gray-100'}`;
                 div.dataset.tableName = tName;
-                div.title = 'Glisser vers le schéma ou sur une autre table pour réordonner';
+                div.title = tableSelectionMode ? 'Cochez les tables à supprimer' : 'Glisser vers le schéma ou sur une autre table pour réordonner. Maintenir pour sélectionner.';
                 div.addEventListener('mousedown', event => startNavigationTableDrag(event, tName));
                 div.innerHTML = `
-                    <div class="flex items-center space-x-2 truncate">
+                    <div class="table-list-content flex items-center space-x-2 truncate">
                         <i class="fa-solid fa-table xml-source-table-icon"></i>
-                        <span class="font-medium text-gray-800 truncate" title="${tName}">${tName}</span>
+                        <span data-table-label class="font-medium text-gray-800 truncate"></span>
                         <span class="text-[10px] bg-gray-200 px-1.5 py-0.2 rounded text-gray-600">${count} lignes</span>
                     </div>
                     <div class="flex items-center space-x-1">
                         ${!isOnCanvas ? `<i class="fa-solid fa-grip-vertical text-gray-400" title="Glisser vers le schéma"></i>` : `<i class="fa-solid fa-check text-emerald-600 text-[10px]" title="Présente sur le schéma"></i>`}
-                        <button onclick="deleteTableFromProject('${tName}')" title="Supprimer la table et ses données" aria-label="Supprimer ${tName}" class="text-red-600 hover:text-red-800 px-1"><i class="fa-solid fa-trash-can"></i></button>
+                        ${tableSelectionMode ? '' : `<button onclick="deleteTableFromProject('${tName}')" title="Supprimer la table et ses données" aria-label="Supprimer ${tName}" class="text-red-600 hover:text-red-800 px-1"><i class="fa-solid fa-trash-can"></i></button>`}
                     </div>
                 `;
+                if (tableSelectionMode) {
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = selectedTableNames.has(tName);
+                    checkbox.className = 'mr-1 accent-red-700';
+                    checkbox.setAttribute('aria-label', `Sélectionner ${tName}`);
+                    checkbox.addEventListener('change', () => {
+                        if (checkbox.checked) selectedTableNames.add(tName);
+                        else selectedTableNames.delete(tName);
+                        updateTableSelectionToolbar();
+                    });
+                    div.querySelector('.table-list-content').prepend(checkbox);
+                }
                 const tableIcon = div.querySelector('.xml-source-table-icon');
                 tableIcon.style.color = sourceColor;
                 tableIcon.title = sourceName ? `Importé depuis ${sourceName}` : 'Fichier XML source inconnu';
+                const tableLabel = div.querySelector('[data-table-label]');
+                tableLabel.textContent = tName;
+                const columnNames = Object.keys(appState.tables[tName][0] || {});
+                tableLabel.title = columnNames.length > 0
+                    ? `Colonnes (${columnNames.length}) :\n${columnNames.join('\n')}`
+                    : 'Aucune colonne trouvée';
                 listContainer.appendChild(div);
             });
+            updateTableSelectionToolbar();
+        }
+
+        function updateTableSelectionToolbar() {
+            const toolbar = document.getElementById('tableSelectionToolbar');
+            if (!toolbar) return;
+            toolbar.classList.toggle('hidden', !tableSelectionMode);
+            const selectedCount = selectedTableNames.size;
+            document.getElementById('tableSelectionCount').textContent = `${selectedCount} sélectionnée${selectedCount === 1 ? '' : 's'}`;
+            document.getElementById('deleteSelectedTablesButton').disabled = selectedCount === 0;
+        }
+
+        function clearTableSelection() {
+            tableSelectionMode = false;
+            selectedTableNames.clear();
+            refreshNavigationPane();
+        }
+
+        function switchNavigationTab(tabName) {
+            const showTables = tabName === 'tables';
+            document.getElementById('navTablesPanel').classList.toggle('hidden', !showTables);
+            document.getElementById('navQueriesPanel').classList.toggle('hidden', showTables);
+            document.getElementById('tablesTab').setAttribute('aria-selected', String(showTables));
+            document.getElementById('queriesTab').setAttribute('aria-selected', String(!showTables));
+            document.getElementById('tablesTab').className = showTables
+                ? 'flex-1 px-3 py-1.5 font-semibold text-red-700 border-b-2 border-red-700 bg-white'
+                : 'flex-1 px-3 py-1.5 text-gray-700 border-b-2 border-transparent hover:bg-white';
+            document.getElementById('queriesTab').className = showTables
+                ? 'flex-1 px-3 py-1.5 text-gray-700 border-b-2 border-transparent hover:bg-white'
+                : 'flex-1 px-3 py-1.5 font-semibold text-red-700 border-b-2 border-red-700 bg-white';
         }
 
         let draggedNavigationTable = null;
 
         function startNavigationTableDrag(event, tableName) {
-            if (event.button !== 0 || event.target.closest('button')) return;
+            if (event.button !== 0 || event.target.closest('button, input') || tableSelectionMode) return;
             event.preventDefault();
-            draggedNavigationTable = {
+            const dragState = {
                 tableName,
                 startX: event.clientX,
                 startY: event.clientY,
                 sourceElement: event.currentTarget,
-                active: false
+                active: false,
+                longPressed: false,
+                longPressTimer: null
             };
+            draggedNavigationTable = dragState;
+            dragState.longPressTimer = setTimeout(() => {
+                if (draggedNavigationTable !== dragState || dragState.active) return;
+                dragState.longPressed = true;
+                tableSelectionMode = true;
+                selectedTableNames.add(tableName);
+                refreshNavigationPane();
+            }, 550);
             document.addEventListener('mousemove', moveNavigationTableDrag);
             document.addEventListener('mouseup', finishNavigationTableDrag);
         }
 
         function moveNavigationTableDrag(event) {
-            if (!draggedNavigationTable) return;
+            if (!draggedNavigationTable || draggedNavigationTable.longPressed) return;
             if (!draggedNavigationTable.active && Math.hypot(event.clientX - draggedNavigationTable.startX, event.clientY - draggedNavigationTable.startY) < 5) return;
 
             event.preventDefault();
+            clearTimeout(draggedNavigationTable.longPressTimer);
             draggedNavigationTable.active = true;
             draggedNavigationTable.sourceElement.classList.add('opacity-50');
             document.body.style.cursor = 'grabbing';
@@ -481,6 +931,7 @@
         function finishNavigationTableDrag(event) {
             if (!draggedNavigationTable) return;
             const dragState = draggedNavigationTable;
+            clearTimeout(dragState.longPressTimer);
             const target = document.elementFromPoint(event.clientX, event.clientY);
             const canvas = target?.closest('#erdCanvas');
             const navigationRow = target?.closest('#navTableList > [data-table-name]');
@@ -677,18 +1128,61 @@
             if (!Object.prototype.hasOwnProperty.call(appState.tables, tableName)) return;
             if (!confirm(`Supprimer complètement la table « ${tableName} » et toutes ses données ?`)) return;
 
-            delete appState.tables[tableName];
-            appState.tableOrder = appState.tableOrder.filter(name => name !== tableName);
-            delete appState.tableSources[tableName];
-            appState.canvasTables = appState.canvasTables.filter(table => table.name !== tableName);
-            appState.joins = appState.joins.filter(join => join.fromTable !== tableName && join.toTable !== tableName);
-            if (linkingSource && linkingSource.table === tableName) clearFieldJoinSelection();
+            removeTablesFromProject([tableName]);
+        }
+
+        function deleteSelectedTables() {
+            const tableNames = [...selectedTableNames].filter(name => Object.prototype.hasOwnProperty.call(appState.tables, name));
+            if (tableNames.length === 0) return;
+            if (!confirm(`Supprimer les ${tableNames.length} tables sélectionnées et toutes leurs données ?`)) return;
+
+            tableSelectionMode = false;
+            selectedTableNames.clear();
+            removeTablesFromProject(tableNames);
+        }
+
+        function removeTablesFromProject(tableNames) {
+            const namesToDelete = new Set(tableNames);
+            const lowerCaseNames = new Set(tableNames.map(name => name.toLowerCase()));
+            if (linkingSource && namesToDelete.has(linkingSource.table)) clearFieldJoinSelection();
+            namesToDelete.forEach(tableName => {
+                delete appState.tables[tableName];
+                delete appState.tableSources[tableName];
+            });
+            appState.tableOrder = appState.tableOrder.filter(name => !namesToDelete.has(name));
+            appState.canvasTables = appState.canvasTables.filter(table => !namesToDelete.has(table.name));
+            appState.joins = appState.joins.filter(join => !namesToDelete.has(join.fromTable) && !namesToDelete.has(join.toTable));
             appState.queryGridRows = appState.queryGridRows.map(queryRow => {
-                if (!queryRow.table || queryRow.table.toLowerCase() !== tableName.toLowerCase()) return queryRow;
+                if (!queryRow.table || !lowerCaseNames.has(queryRow.table.toLowerCase())) return queryRow;
                 return { field: '', table: '', alias: '', expression: '', show: false, sort: '', criteria: '', or: '', width: queryRow.width };
             });
+            selectedTableNames = new Set([...selectedTableNames].filter(name => !namesToDelete.has(name)));
 
             renderQueryGrid();
+            refreshNavigationPane();
+            renderCanvasTables();
+            renderSvgJoins();
+            updateStatusBar();
+        }
+
+        function deleteAllTables() {
+            const tableCount = Object.keys(appState.tables).length;
+            if (tableCount === 0) return;
+            if (!confirm(`Supprimer les ${tableCount} tables et toutes leurs données ?`)) return;
+
+            tableSelectionMode = false;
+            selectedTableNames.clear();
+            if (linkingSource) clearFieldJoinSelection();
+            appState.tables = {};
+            appState.tableOrder = [];
+            appState.tableSources = {};
+            appState.xmlSources = {};
+            appState.canvasTables = [];
+            appState.joins = [];
+            appState.queryGridRows = [];
+            activeQueryId = null;
+
+            initQueryGrid();
             refreshNavigationPane();
             renderCanvasTables();
             renderSvgJoins();
@@ -796,7 +1290,7 @@
                 fromField: source.field,
                 toTable: targetTable,
                 toField: targetField,
-                type: 'INNER'
+                type: 'LEFT'
             });
             clearFieldJoinSelection();
             renderSvgJoins();
@@ -1299,7 +1793,41 @@
 
         // Exécuter et afficher les résultats de la requête (Datasheet View)
         function runQueryPreview() {
-            const results = executeQueryEngine();
+            const overlay = document.getElementById('queryExecutionOverlay');
+            const executeButton = document.getElementById('executeQueryButton');
+            overlay.classList.remove('hidden');
+            executeButton.disabled = true;
+
+            requestAnimationFrame(() => setTimeout(() => {
+                const startedAt = performance.now();
+                try {
+                    const results = executeQueryEngine();
+                    renderQueryResults(results);
+                    const elapsedMs = performance.now() - startedAt;
+                    if (elapsedMs >= 1000) {
+                        document.getElementById('statusBarMode').textContent = `Requête terminée en ${(elapsedMs / 1000).toFixed(1)} s`;
+                        document.getElementById('dataPreviewCount').textContent += ` en ${(elapsedMs / 1000).toFixed(1)} s`;
+                    } else {
+                        document.getElementById('statusBarMode').textContent = 'Requête terminée';
+                    }
+                } catch (error) {
+                    const container = document.getElementById('dataPreviewContainer');
+                    container.innerHTML = '';
+                    const errorMessage = document.createElement('div');
+                    errorMessage.className = 'mx-auto max-w-3xl border border-red-300 bg-red-50 p-4 text-red-800';
+                    errorMessage.textContent = `Erreur lors de l'exécution de la requête : ${error.message || error}`;
+                    container.appendChild(errorMessage);
+                    document.getElementById('dataPreviewCount').textContent = 'Échec de l’exécution';
+                    document.getElementById('statusBarMode').textContent = 'Erreur d’exécution';
+                    document.getElementById('dataPreviewModal').classList.remove('hidden');
+                } finally {
+                    overlay.classList.add('hidden');
+                    executeButton.disabled = false;
+                }
+            }, 0));
+        }
+
+        function renderQueryResults(results) {
             const container = document.getElementById('dataPreviewContainer');
             container.innerHTML = '';
 
@@ -1494,14 +2022,25 @@
             document.getElementById('statusBarMode').textContent = 'Prêt';
         }
 
-        function switchRibbonTab(tabName) {
-            document.querySelectorAll('.access-tab').forEach(t => t.classList.remove('active'));
-            event.target.classList.add('active');
-        }
-
         function minimizeWindow() { alert("Fenêtre minimisée"); }
         function maximizeWindow() { document.documentElement.requestFullscreen(); }
-        function closeWindow() { if(confirm("Fermer l'application ?")) window.close(); }
+        function closeWindow() {
+            if (getQueryDefinition() !== savedQueryDefinition) {
+                if (confirm('Enregistrer les modifications avant de quitter ?')) {
+                    if (!savedQueries.some(query => query.id === activeQueryId)) {
+                        pendingCloseAfterSave = true;
+                        openQueryNameModal();
+                        return;
+                    }
+                    if (!saveCurrentQuery()) return;
+                } else if (!confirm('Quitter sans enregistrer les modifications ?')) {
+                    return;
+                } else {
+                    skipUnloadWarning = true;
+                }
+            }
+            window.close();
+        }
     </script>
 </body>
 </html>
