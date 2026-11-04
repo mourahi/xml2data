@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="fr" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Microsoft Access XML Query Builder & Studio</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS (xlsx) pour l'export Excel multi-onglets -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- FontAwesome pour les icônes style Access/Office -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
+        .access-ribbon { background: #f3f3f3; border-bottom: 1px solid #d4d4d4; }
+        .access-tab { padding: 6px 16px; font-size: 13px; font-weight: 500; color: #333; cursor: pointer; border-bottom: 2px solid transparent; }
+        .access-tab.active { color: #b91c1c; border-bottom-color: #b91c1c; background: #fff; }
+        .access-grid-header { background: #e1dfdd; border-right: 1px solid #c8c6c4; border-bottom: 1px solid #c8c6c4; font-size: 11px; font-weight: 600; color: #323130; }
+        .access-grid-cell { border-right: 1px solid #edebe9; border-bottom: 1px solid #edebe9; font-size: 12px; }
+        .table-card { position: absolute; background: #ffffff; border: 1px solid #8a8886; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-radius: 3px; width: 220px; z-index: 10; cursor: move; }
+        .table-card header { background: linear-gradient(to bottom, #f3f2f1, #e1dfdd); border-bottom: 1px solid #c8c6c4; padding: 4px 8px; font-size: 11px; font-weight: bold; color: #201f1e; }
+        .field-row { padding: 2px 8px; font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+        .field-row:hover { background: #f3f9ff; color: #005a9e; }
+        .field-row.selected { background: #c7e0f4; }
+        .field-row.query-field-selected { background: #dbeafe; border-left: 3px solid #2563eb; padding-left: 5px; font-weight: 600; }
+        .field-row.join-source { background: #e6f4ea; border-left: 3px solid #16a34a; padding-left: 5px; }
+        .resize-handle { position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; cursor: se-resize; }
+        /* Style des lignes SVG */
+        .join-line { stroke: #434343; stroke-width: 2; cursor: pointer; transition: stroke 0.2s; }
+        .join-line:hover { stroke: #005a9e; stroke-width: 3; }
+        .join-arrow { fill: #434343; }
+    </style>
+</head>
+<body class="h-full flex flex-col bg-[#f0f0f0] overflow-hidden text-xs">
+
+    <!-- Barre de titre MS Access -->
+    <div class="bg-[#b91c1c] text-white px-3 py-1.5 flex items-center justify-between shadow-sm select-none">
+        <div class="flex items-center space-x-2">
+            <i class="fa-solid fa-database text-sm"></i>
+            <span class="font-bold">Microsoft Access XML Query Builder & Studio</span>
+            <span class="text-xs bg-red-800 px-2 py-0.5 rounded text-red-100" id="currentProjectTitle">Modele_Default_SGS.xml</span>
+        </div>
+        <div class="flex items-center space-x-3 text-sm">
+            <button onclick="minimizeWindow()" class="hover:bg-red-700 px-2 py-0.5 rounded"><i class="fa-solid fa-minus"></i></button>
+            <button onclick="maximizeWindow()" class="hover:bg-red-700 px-2 py-0.5 rounded"><i class="fa-solid fa-expand"></i></button>
+            <button onclick="closeWindow()" class="hover:bg-red-700 px-2 py-0.5 rounded"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+    </div>
+
+    <!-- Ruban MS Access (Ribbon) -->
+    <div class="access-ribbon flex flex-col select-none">
+        <div class="flex bg-[#f3f3f3] border-b border-[#e1dfdd] px-2">
+            <div class="access-tab active" onclick="switchRibbonTab('create')">Créer / Requêtes</div>
+            <div class="access-tab" onclick="switchRibbonTab('external')">Données Externes (XML)</div>
+            <div class="access-tab" onclick="switchRibbonTab('database')">Outils de Base de Données</div>
+        </div>
+
+        <!-- Tab Content: Créer -->
+        <div id="tab-create" class="flex items-center px-3 py-2 space-x-4 bg-white">
+            <div class="flex flex-col items-center border-r pr-4 border-gray-200">
+                <button onclick="document.getElementById('xmlFileInput').click()" class="flex flex-col items-center hover:bg-gray-100 p-1.5 rounded text-gray-700">
+                    <i class="fa-solid fa-folder-open text-xl text-amber-600 mb-1"></i>
+                    <span>Ouvrir XML</span>
+                </button>
+                <input type="file" id="xmlFileInput" accept=".xml" class="hidden" onchange="handleFileSelect(event)">
+            </div>
+            <div class="flex flex-col items-center border-r pr-4 border-gray-200">
+                <button onclick="loadDefaultSGSXML()" class="flex flex-col items-center hover:bg-gray-100 p-1.5 rounded text-gray-700">
+                    <i class="fa-solid fa-wand-magic-sparkles text-xl text-purple-600 mb-1"></i>
+                    <span>Exemple SGS</span>
+                </button>
+            </div>
+            <div class="flex flex-col items-center border-r pr-4 border-gray-200">
+                <button onclick="openAddTableModal()" class="flex flex-col items-center hover:bg-gray-100 p-1.5 rounded text-gray-700">
+                    <i class="fa-solid fa-table-columns text-xl text-blue-600 mb-1"></i>
+                    <span>Ajouter Table au Schéma</span>
+                </button>
+            </div>
+            <div class="flex flex-col items-center border-r pr-4 border-gray-200">
+                <button onclick="executeAndExportExcel()" class="flex flex-col items-center hover:bg-gray-100 p-1.5 rounded text-gray-700">
+                    <i class="fa-solid fa-file-excel text-xl text-emerald-600 mb-1"></i>
+                    <span>Exporter Excel (.xlsx)</span>
+                </button>
+            </div>
+            <div class="flex flex-col items-center">
+                <button onclick="exportJSONProject()" class="flex flex-col items-center hover:bg-gray-100 p-1.5 rounded text-gray-700">
+                    <i class="fa-solid fa-code text-xl text-cyan-600 mb-1"></i>
+                    <span>JSON</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Corps principal style Access (Navigation pane à gauche, Concepteur au centre) -->
+    <div class="flex-1 flex overflow-hidden">
+
+        <!-- Panneau de Navigation (Navigation Pane) -->
+        <div class="w-64 bg-[#f3f2f1] border-r border-[#c8c6c4] flex flex-col select-none">
+            <div class="bg-[#e1dfdd] px-3 py-1.5 font-bold text-[#323130] flex items-center justify-between border-b border-[#c8c6c4]">
+                <span>TOUS LES OBJETS XML</span>
+                <button onclick="refreshNavigationPane()" class="text-gray-600 hover:text-black"><i class="fa-solid fa-rotate"></i></button>
+            </div>
+            <div class="p-2 border-b border-[#c8c6c4]">
+                <div class="relative">
+                    <i class="fa-solid fa-search absolute left-2 top-2 text-gray-400"></i>
+                    <input type="text" id="navSearchInput" oninput="filterNavTables()" placeholder="Rechercher table..." class="w-full pl-7 pr-2 py-1 bg-white border border-[#8a8886] rounded text-xs focus:outline-none focus:border-blue-600">
+                </div>
+            </div>
+            <div id="navTableList" class="flex-1 overflow-y-auto p-1 space-y-0.5 bg-white">
+                <div class="text-gray-400 text-center py-4 italic">Aucune table chargée.</div>
+            </div>
+        </div>
+
+        <!-- Espace Central : Concepteur de Requêtes Visuel + Grille de Critères -->
+        <div class="flex-1 flex flex-col bg-white overflow-hidden relative">
+
+            <!-- Zone Visuelle ERD (Tables glissables & redimensionnables avec SVG) -->
+            <div id="erdCanvas" class="flex-1 relative bg-[#faf9f8] overflow-auto" style="background-image: radial-gradient(#c8c6c4 1px, transparent 1px); background-size: 20px 20px;" ondragover="allowDrop(event)" ondrop="dropTableCard(event)">
+                <svg id="erdSvg" class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 1; min-width: 2000px; min-height: 2000px;">
+                    <!-- Les liaisons SVG entre tables -->
+                </svg>
+                <div id="tablesContainer" class="absolute inset-0 pointer-events-none" style="min-width: 2000px; min-height: 2000px;">
+                    <!-- Les cartes de tables injectées ici -->
+                </div>
+            </div>
+
+            <!-- Grille de Requête style Access (Query Design Grid) en bas -->
+            <div class="h-56 border-t-2 border-[#c8c6c4] bg-[#f3f2f1] flex flex-col select-none">
+                <div class="bg-[#e1dfdd] px-3 py-1 font-bold text-gray-700 border-b border-[#c8c6c4] flex items-center justify-between">
+                    <span><i class="fa-solid fa-table-cells text-red-700 mr-1.5"></i> Grille de Création de Requête & Filtres (Access Style)</span>
+                    <button onclick="runQueryPreview()" class="bg-red-700 hover:bg-red-800 text-white px-3 py-0.5 rounded text-xs font-semibold shadow-sm">
+                        <i class="fa-solid fa-play mr-1"></i> Exécuter Requête
+                    </button>
+                </div>
+                <div class="flex-1 overflow-auto bg-white p-2">
+                    <table class="border-collapse" style="min-width: 100%; width: max-content;">
+                        <tbody id="queryGridBody">
+                            <!-- Généré dynamiquement -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Barre d'état Access (Status Bar) -->
+    <div class="bg-[#f3f2f1] border-t border-[#c8c6c4] px-3 py-1 flex items-center justify-between text-gray-600 text-xs select-none">
+        <div class="flex items-center space-x-4">
+            <span id="statusBarMode" class="font-semibold text-red-700">Prêt</span>
+            <span id="statusBarTablesCount">0 tables chargées</span>
+            <span id="statusBarRowsCount">0 lignes au total</span>
+        </div>
+        <div class="flex items-center space-x-3">
+            <span>Encodage: UTF-8</span>
+            <button onclick="openDataPreviewModal()" class="hover:underline text-blue-600 font-semibold"><i class="fa-solid fa-table mr-1"></i> Aperçu des Données</button>
+        </div>
+    </div>
+
+    <!-- Modal Modal Propriétés de Jointure (MS Access Join Properties) -->
+    <div id="joinModal" class="fixed inset-0 bg-black/40 z-50 hidden flex items-center justify-center">
+        <div class="bg-white rounded shadow-2xl w-96 border border-gray-400 overflow-hidden">
+            <div class="bg-[#b91c1c] text-white px-3 py-2 flex items-center justify-between font-bold">
+                <span>Propriétés de jointure</span>
+                <button onclick="closeJoinModal()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-4 space-y-4">
+                <div class="text-gray-700 text-xs" id="joinModalDesc">Sélectionnez le type de jointure entre les tables :</div>
+                <div class="space-y-2">
+                    <label class="flex items-start space-x-2 p-2 rounded hover:bg-gray-100 cursor-pointer border border-transparent hover:border-gray-300">
+                        <input type="radio" name="joinType" value="INNER" checked class="mt-0.5">
+                        <div>
+                            <span class="font-bold text-gray-900 block">1. INNER JOIN (Équijointure)</span>
+                            <span class="text-gray-500 text-[11px]">N'inclure que les lignes où les champs joints sont égaux dans les deux tables.</span>
+                        </div>
+                    </label>
+                    <label class="flex items-start space-x-2 p-2 rounded hover:bg-gray-100 cursor-pointer border border-transparent hover:border-gray-300">
+                        <input type="radio" name="joinType" value="LEFT" class="mt-0.5">
+                        <div>
+                            <span class="font-bold text-gray-900 block">2. LEFT JOIN (Tous les enregistrements de A)</span>
+                            <span class="text-gray-500 text-[11px]">Inclure tous les enregistrements de la première table et uniquement les correspondances de la seconde.</span>
+                        </div>
+                    </label>
+                    <label class="flex items-start space-x-2 p-2 rounded hover:bg-gray-100 cursor-pointer border border-transparent hover:border-gray-300">
+                        <input type="radio" name="joinType" value="RIGHT" class="mt-0.5">
+                        <div>
+                            <span class="font-bold text-gray-900 block">3. RIGHT JOIN (Tous les enregistrements de B)</span>
+                            <span class="text-gray-500 text-[11px]">Inclure tous les enregistrements de la seconde table et uniquement les correspondances de la première.</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            <div class="bg-gray-100 px-4 py-2.5 flex justify-between items-center border-t border-gray-300">
+                <button onclick="deleteCurrentJoin()" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs font-medium">Supprimer la liaison</button>
+                <div class="space-x-2">
+                    <button onclick="closeJoinModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-3 py-1 rounded text-xs">Annuler</button>
+                    <button onclick="saveJoinProperties()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs font-semibold">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Modal d'Aperçu des Données (Datasheet View) -->
+    <div id="dataPreviewModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-6">
+        <div class="bg-white rounded shadow-2xl w-full h-full max-w-6xl max-h-[90vh] flex flex-col border border-gray-400 overflow-hidden">
+            <div class="bg-[#b91c1c] text-white px-4 py-2 flex items-center justify-between font-bold">
+                <span id="dataPreviewTitle"><i class="fa-solid fa-table mr-2"></i> Feuille de Données (Datasheet View)</span>
+                <button onclick="closeDataPreviewModal()" class="text-lg"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="flex-1 overflow-auto p-4 bg-[#f9f9f9]" id="dataPreviewContainer">
+                <!-- Tableau des résultats injecté ici -->
+            </div>
+            <div class="bg-gray-200 px-4 py-2 flex justify-between items-center border-t border-gray-300">
+                <span id="dataPreviewCount" class="text-gray-700 font-medium">0 enregistrement(s)</span>
+                <button onclick="closeDataPreviewModal()" class="bg-gray-700 hover:bg-gray-800 text-white px-4 py-1 rounded text-xs font-semibold">Fermer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal d'ajout de table au schéma -->
+    <div id="addTableModal" class="fixed inset-0 bg-black/40 z-50 hidden flex items-center justify-center">
+        <div class="bg-white rounded shadow-2xl w-80 border border-gray-400 overflow-hidden">
+            <div class="bg-[#b91c1c] text-white px-3 py-2 flex items-center justify-between font-bold">
+                <span>Ajouter des tables au schéma</span>
+                <button onclick="closeAddTableModal()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-3 max-h-60 overflow-y-auto space-y-1" id="addTableModalList">
+                <!-- Liste des tables disponibles à ajouter -->
+            </div>
+            <div class="bg-gray-100 px-3 py-2 text-right border-t border-gray-300">
+                <button onclick="closeAddTableModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-3 py-1 rounded text-xs">Fermer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Application Logic -->
+    <script>
+        // État Global de l'application
+        let appState = {
+            fileName: "Modele_Default_SGS.xml",
+            tables: {},          // { tableName: [ {col1: val1, ...}, ... ] }
+            canvasTables: [],    // [ { name: "z_com", x: 50, y: 50, width: 220, height: 200 }, ... ]
+            joins: [],           // [ { id, fromTable, fromField, toTable, toField, type: "INNER"|"LEFT"|"RIGHT" }, ... ]
+            queryGridRows: [],   // Lignes de la grille de critères style Access (8 lignes)
+            activeJoinId: null   // ID de la liaison actuellement cliquée
+        };
+
+        // Données d'exemple XML par défaut (SGS Morocco)
+        const DEFAULT_SGS_XML = `<?xml version="1.0" encoding="utf-8"?>
+<SgsDataExportDs xmlns="http://tempuri.org/SgsDataExportDs.xsd">
+  <z_com>
+    <cd_com>4310103</cd_com>
+    <ll_com>Safi (Mun.)</ll_com>
+    <la_com>آسفي (البلدية)</la_com>
+    <CD_MIL>1</CD_MIL>
+    <CD_PROV>431</CD_PROV>
+    <Actif>1</Actif>
+    <DateModification>2013-09-27T10:52:51.193+01:00</DateModification>
+  </z_com>
+  <z_com>
+    <cd_com>4310109</cd_com>
+    <ll_com>Jamaat Shaim (Mun.)</ll_com>
+    <la_com>جماعة سحيم (البلدية)</la_com>
+    <CD_MIL>1</CD_MIL>
+    <CD_PROV>431</CD_PROV>
+    <Actif>1</Actif>
+    <DateModification>2016-03-06T17:38:09.35+00:00</DateModification>
+  </z_com>
+  <z_com>
+    <cd_com>4310111</cd_com>
+    <ll_com>Sebt Gzoula (Mun.)</ll_com>
+    <la_com>سبت كزولة (البلدية)</la_com>
+    <CD_MIL>1</CD_MIL>
+    <CD_PROV>431</CD_PROV>
+    <Actif>1</Actif>
+    <DateModification>2016-03-06T17:38:09.35+00:00</DateModification>
+  </z_com>
+  <Z_etab>
+    <CD_ETAB>102943</CD_ETAB>
+    <NOM_ETABL>NS-chems</NOM_ETABL>
+    <NOM_ETABA>شمس</NOM_ETABA>
+    <CD_COM>4310103</CD_COM>
+    <typeEtab>NS</typeEtab>
+    <Actif>1</Actif>
+    <DateModification>2026-11-04T04:00:06.41+00:00</DateModification>
+  </Z_etab>
+  <Z_etab>
+    <CD_ETAB>102944</CD_ETAB>
+    <NOM_ETABL>Al Allal Ibn Abdellah</NOM_ETABL>
+    <NOM_ETABA>علال بن عبد الله</NOM_ETABA>
+    <CD_COM>4310103</CD_COM>
+    <typeEtab>SEC</typeEtab>
+    <Actif>1</Actif>
+    <DateModification>2026-11-04T04:00:06.41+00:00</DateModification>
+  </Z_etab>
+</SgsDataExportDs>`;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initQueryGrid();
+            loadXMLFromString(DEFAULT_SGS_XML, "Modele_Default_SGS.xml");
+        });
+
+        // Charger l'exemple SGS par défaut
+        function loadDefaultSGSXML() {
+            loadXMLFromString(DEFAULT_SGS_XML, "Modele_Default_SGS.xml");
+        }
+
+        // Sélectionner un fichier XML local
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                loadXMLFromString(e.target.result, file.name);
+            };
+            reader.readAsText(file, "UTF-8");
+        }
+
+        // Parser le XML avec DOMParser et peupler l'application
+        function loadXMLFromString(xmlString, fileName) {
+            try {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+
+                // Vérifier les erreurs de parsing
+                const parseError = xmlDoc.getElementsByTagName("parsererror");
+                if (parseError.length > 0) {
+                    alert("Erreur de syntaxe XML détectée dans le fichier.");
+                    return;
+                }
+
+                appState.fileName = fileName;
+                document.getElementById('currentProjectTitle').textContent = fileName;
+                appState.tables = {};
+
+                // Parcourir tous les éléments enfants de la racine
+                const root = xmlDoc.documentElement;
+                const children = root.children;
+
+                // Regrouper par nom de balise (table)
+                const tableMap = {};
+                for (let i = 0; i < children.length; i++) {
+                    const node = children[i];
+                    const tagName = node.tagName;
+                    if (!tableMap[tagName]) {
+                        tableMap[tagName] = [];
+                    }
+
+                    // Extraire les champs enfants de la balise
+                    const rowObj = {};
+                    const fields = node.children;
+                    for (let j = 0; j < fields.length; j++) {
+                        const field = fields[j];
+                        rowObj[field.tagName] = field.textContent.trim();
+                    }
+                    tableMap[tagName].push(rowObj);
+                }
+
+                appState.tables = tableMap;
+                initQueryGrid();
+
+                // Laisser le canevas vide jusqu'à l'ajout manuel des tables
+                const tableNames = Object.keys(appState.tables);
+                appState.canvasTables = [];
+
+                // Joindre par défaut s'il y a des champs communs (ex: cd_com)
+                appState.joins = [];
+                if (tableNames.includes("z_com") && tableNames.includes("Z_etab")) {
+                    appState.joins.push({
+                        id: 'join_default_1',
+                        fromTable: 'z_com',
+                        fromField: 'cd_com',
+                        toTable: 'Z_etab',
+                        toField: 'CD_COM',
+                        type: 'INNER'
+                    });
+                }
+
+                refreshNavigationPane();
+                renderCanvasTables();
+                renderSvgJoins();
+                updateStatusBar();
+
+            } catch (err) {
+                console.error(err);
+                alert("Erreur lors du traitement du fichier XML : " + err.message);
+            }
+        }
+
+        // Rafraîchir le volet de navigation (gauche)
+        function refreshNavigationPane() {
+            const listContainer = document.getElementById('navTableList');
+            listContainer.innerHTML = '';
+
+            const tableNames = Object.keys(appState.tables);
+            if (tableNames.length === 0) {
+                listContainer.innerHTML = '<div class="text-gray-400 text-center py-4 italic">Aucune table chargée.</div>';
+                return;
+            }
+
+            tableNames.forEach(tName => {
+                const count = appState.tables[tName].length;
+                const isOnCanvas = appState.canvasTables.some(ct => ct.name === tName);
+
+                const div = document.createElement('div');
+                div.className = "flex items-center justify-between p-1.5 hover:bg-gray-100 rounded cursor-pointer group";
+                div.innerHTML = `
+                    <div class="flex items-center space-x-2 truncate">
+                        <i class="fa-solid fa-table text-red-700"></i>
+                        <span class="font-medium text-gray-800 truncate" title="${tName}">${tName}</span>
+                        <span class="text-[10px] bg-gray-200 px-1.5 py-0.2 rounded text-gray-600">${count} lignes</span>
+                    </div>
+                    <div class="flex items-center space-x-1">
+                        ${!isOnCanvas ? `<button onclick="addTableToCanvas('${tName}')" title="Ajouter au schéma" class="text-blue-600 hover:text-blue-800 px-1"><i class="fa-solid fa-plus-circle"></i></button>` : `<i class="fa-solid fa-check text-emerald-600 text-[10px]" title="Présente sur le schéma"></i>`}
+                    </div>
+                `;
+                listContainer.appendChild(div);
+            });
+        }
+
+        // Filtrer les tables dans le panneau de navigation
+        function filterNavTables() {
+            const query = document.getElementById('navSearchInput').value.toLowerCase();
+            const items = document.getElementById('navTableList').children;
+            for (let item of items) {
+                const text = item.textContent.toLowerCase();
+                item.style.display = text.includes(query) ? 'flex' : 'none';
+            }
+        }
+
+        // Rendu des cartes de tables sur le canevas ERD
+        function renderCanvasTables() {
+            const container = document.getElementById('tablesContainer');
+            container.innerHTML = '';
+
+            appState.canvasTables.forEach(ct => {
+                const tableData = appState.tables[ct.name] || [];
+                const fields = tableData.length > 0 ? Object.keys(tableData[0]) : [];
+
+                const card = document.createElement('div');
+                card.className = "table-card pointer-events-auto";
+                card.style.left = ct.x + 'px';
+                card.style.top = ct.y + 'px';
+                card.style.width = ct.width + 'px';
+                card.style.height = ct.height + 'px';
+                card.dataset.tableName = ct.name;
+
+                let fieldsHtml = '';
+                fields.forEach((fName, fIdx) => {
+                    fieldsHtml += `
+                        <div class="field-row" id="field_${ct.name}_${fName}" data-table-name="${ct.name}" data-field-name="${fName}" draggable="true" onclick="handleFieldClick('${ct.name}', '${fName}')" ondblclick="handleFieldDoubleClick('${ct.name}', '${fName}')" ondragstart="startFieldDrag(event, '${ct.name}', '${fName}')" ondragover="allowFieldDrop(event)" ondrop="handleFieldDrop(event, '${ct.name}', '${fName}')" title="Double-cliquez pour ajouter au bas, ou cliquez pour lier les tables">
+                            <span class="truncate"><i class="fa-solid fa-key text-amber-600 mr-1 text-[9px]"></i>${fName}</span>
+                            <span class="text-[9px] text-gray-400">txt</span>
+                        </div>
+                    `;
+                });
+
+                card.innerHTML = `
+                    <header class="flex items-center justify-between cursor-move" onmousedown="initTableDrag(event, '${ct.name}')">
+                        <span class="truncate" title="${ct.name}"><i class="fa-solid fa-table mr-1 text-red-700"></i>${ct.name}</span>
+                        <div class="flex items-center space-x-1">
+                            <button onclick="removeTableFromCanvas('${ct.name}')" class="text-gray-500 hover:text-red-700 font-bold px-1" title="Retirer du schéma">×</button>
+                        </div>
+                    </header>
+                    <div class="overflow-y-auto bg-white" style="height: calc(100% - 26px);">
+                        ${fieldsHtml}
+                    </div>
+                    <div class="resize-handle" onmousedown="initTableResize(event, '${ct.name}')"></div>
+                `;
+                container.appendChild(card);
+            });
+            syncQueryFieldHighlights();
+            renderSvgJoins();
+        }
+
+        // Gestion du Drag & Drop des cartes de tables
+        let activeDragTable = null;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        function initTableDrag(e, tableName) {
+            if (e.target.tagName === 'BUTTON') return;
+            activeDragTable = tableName;
+            const ct = appState.canvasTables.find(t => t.name === tableName);
+            const card = document.querySelector(`[data-table-name="${tableName}"]`);
+            const rect = card.getBoundingClientRect();
+            const canvasRect = document.getElementById('erdCanvas').getBoundingClientRect();
+
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+
+            document.addEventListener('mousemove', onTableDrag);
+            document.addEventListener('mouseup', stopTableDrag);
+            e.stopPropagation();
+        }
+
+        function onTableDrag(e) {
+            if (!activeDragTable) return;
+            const canvasRect = document.getElementById('erdCanvas').getBoundingClientRect();
+            const ct = appState.canvasTables.find(t => t.name === activeDragTable);
+            if (ct) {
+                ct.x = Math.max(0, e.clientX - canvasRect.left - dragOffsetX + document.getElementById('erdCanvas').scrollLeft);
+                ct.y = Math.max(0, e.clientY - canvasRect.top - dragOffsetY + document.getElementById('erdCanvas').scrollTop);
+                const card = document.querySelector(`[data-table-name="${activeDragTable}"]`);
+                if (card) {
+                    card.style.left = ct.x + 'px';
+                    card.style.top = ct.y + 'px';
+                }
+                renderSvgJoins();
+            }
+        }
+
+        function stopTableDrag() {
+            activeDragTable = null;
+            document.removeEventListener('mousemove', onTableDrag);
+            document.removeEventListener('mouseup', stopTableDrag);
+        }
+
+        // Redimensionnement des cartes de tables
+        let activeResizeTable = null;
+        let initialResizeX = 0;
+        let initialResizeY = 0;
+        let initialWidth = 220;
+        let initialHeight = 220;
+
+        function initTableResize(e, tableName) {
+            activeResizeTable = tableName;
+            const ct = appState.canvasTables.find(t => t.name === tableName);
+            initialResizeX = e.clientX;
+            initialResizeY = e.clientY;
+            initialWidth = ct.width;
+            initialHeight = ct.height;
+
+            document.addEventListener('mousemove', onTableResize);
+            document.addEventListener('mouseup', stopTableResize);
+            e.stopPropagation();
+        }
+
+        function onTableResize(e) {
+            if (!activeResizeTable) return;
+            const ct = appState.canvasTables.find(t => t.name === activeResizeTable);
+            if (ct) {
+                ct.width = Math.max(180, initialWidth + (e.clientX - initialResizeX));
+                ct.height = Math.max(150, initialHeight + (e.clientY - initialResizeY));
+                const card = document.querySelector(`[data-table-name="${activeResizeTable}"]`);
+                if (card) {
+                    card.style.width = ct.width + 'px';
+                    card.style.height = ct.height + 'px';
+                }
+                renderSvgJoins();
+            }
+        }
+
+        function stopTableResize() {
+            activeResizeTable = null;
+            document.removeEventListener('mousemove', onTableResize);
+            document.removeEventListener('mouseup', stopTableResize);
+        }
+
+        // Retirer une table du schéma
+        function removeTableFromCanvas(tableName) {
+            appState.canvasTables = appState.canvasTables.filter(t => t.name !== tableName);
+            // Supprimer aussi les liaisons associées
+            appState.joins = appState.joins.filter(j => j.fromTable !== tableName && j.toTable !== tableName);
+            refreshNavigationPane();
+            renderCanvasTables();
+            renderSvgJoins();
+        }
+
+        // Ajouter une table au schéma via modal ou bouton
+        function openAddTableModal() {
+            const modalList = document.getElementById('addTableModalList');
+            modalList.innerHTML = '';
+
+            const tableNames = Object.keys(appState.tables);
+            tableNames.forEach(tName => {
+                const isOnCanvas = appState.canvasTables.some(ct => ct.name === tName);
+                if (!isOnCanvas) {
+                    const div = document.createElement('div');
+                    div.className = "flex items-center justify-between p-2 hover:bg-gray-100 rounded cursor-pointer";
+                    div.innerHTML = `
+                        <span class="font-medium text-gray-800"><i class="fa-solid fa-table text-red-700 mr-2"></i>${tName}</span>
+                        <button onclick="addTableToCanvas('${tName}'); closeAddTableModal();" class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs">Ajouter</button>
+                    `;
+                    modalList.appendChild(div);
+                }
+            });
+            if (modalList.children.length === 0) {
+                modalList.innerHTML = '<div class="text-gray-400 text-center py-4 italic">Toutes les tables sont déjà sur le schéma.</div>';
+            }
+            document.getElementById('addTableModal').classList.remove('hidden');
+        }
+
+        function closeAddTableModal() {
+            document.getElementById('addTableModal').classList.add('hidden');
+        }
+
+        function addTableToCanvas(tableName) {
+            if (!appState.canvasTables.some(t => t.name === tableName)) {
+                appState.canvasTables.push({
+                    name: tableName,
+                    x: 100 + (appState.canvasTables.length * 30) % 300,
+                    y: 100 + (appState.canvasTables.length * 30) % 200,
+                    width: 220,
+                    height: 220
+                });
+                refreshNavigationPane();
+                renderCanvasTables();
+                renderSvgJoins();
+            }
+        }
+
+        function allowDrop(event) {
+            if (event) {
+                event.preventDefault();
+            }
+        }
+
+        function dropTableCard(event) {
+            if (event) {
+                event.preventDefault();
+            }
+        }
+
+        // Lier deux champs entre tables par glisser-déposer, clic ou double-clic
+        let linkingSource = null;
+
+        function clearFieldJoinSelection() {
+            linkingSource = null;
+            document.querySelectorAll('.field-row.join-source').forEach(el => {
+                el.classList.remove('join-source');
+            });
+        }
+
+        function applyFieldJoinSelection(tableName, fieldName) {
+            clearFieldJoinSelection();
+            linkingSource = { table: tableName, field: fieldName };
+            const sourceEl = document.getElementById(`field_${tableName}_${fieldName}`);
+            if (sourceEl) sourceEl.classList.add('join-source');
+        }
+
+        function createJoinBetween(source, targetTable, targetField) {
+            if (!source || !source.table || !source.field) return;
+            if (source.table === targetTable && source.field === targetField) return;
+            if (!appState.tables[targetTable]) return;
+
+            const exists = appState.joins.some(join =>
+                ((join.fromTable === source.table && join.fromField === source.field && join.toTable === targetTable && join.toField === targetField) ||
+                 (join.fromTable === targetTable && join.fromField === targetField && join.toTable === source.table && join.toField === source.field))
+            );
+            if (exists) {
+                clearFieldJoinSelection();
+                return;
+            }
+
+            appState.joins.push({
+                id: 'join_' + Date.now(),
+                fromTable: source.table,
+                fromField: source.field,
+                toTable: targetTable,
+                toField: targetField,
+                type: 'INNER'
+            });
+            clearFieldJoinSelection();
+            renderSvgJoins();
+        }
+
+        function handleFieldClick(tableName, fieldName) {
+            if (linkingSource && !(linkingSource.table === tableName && linkingSource.field === fieldName)) {
+                createJoinBetween(linkingSource, tableName, fieldName);
+                return;
+            }
+
+            applyFieldJoinSelection(tableName, fieldName);
+        }
+
+        function handleFieldDoubleClick(tableName, fieldName) {
+            clearFieldJoinSelection();
+            selectFieldForQuery(tableName, fieldName);
+        }
+
+        function startFieldDrag(event, tableName, fieldName) {
+            applyFieldJoinSelection(tableName, fieldName);
+            if (event.dataTransfer) {
+                event.dataTransfer.effectAllowed = 'copy';
+                event.dataTransfer.setData('application/json', JSON.stringify({ tableName, fieldName }));
+                event.dataTransfer.setData('text/plain', `${tableName}.${fieldName}`);
+            }
+        }
+
+        function allowFieldDrop(event) {
+            event.preventDefault();
+            if (event.dataTransfer) {
+                event.dataTransfer.dropEffect = 'copy';
+            }
+        }
+
+        function handleFieldDrop(event, targetTable, targetField) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            let source = linkingSource;
+            if (event.dataTransfer) {
+                try {
+                    const payload = event.dataTransfer.getData('application/json');
+                    if (payload) {
+                        source = JSON.parse(payload);
+                    } else {
+                        const plain = event.dataTransfer.getData('text/plain');
+                        if (plain && plain.includes('.')) {
+                            const [tableName, fieldName] = plain.split('.');
+                            source = { table: tableName, field: fieldName };
+                        }
+                    }
+                } catch (err) {
+                    console.warn('Payload drag & drop non valide :', err);
+                }
+            }
+
+            if (!source) {
+                if (linkingSource) {
+                    createJoinBetween(linkingSource, targetTable, targetField);
+                }
+                return;
+            }
+
+            createJoinBetween(source, targetTable, targetField);
+        }
+
+        // Rendu des traits de liaison SVG précis ancrés aux champs
+        function renderSvgJoins() {
+            const svg = document.getElementById('erdSvg');
+            svg.innerHTML = '';
+
+            const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+            const arrowMarker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+            arrowMarker.setAttribute('id', 'joinArrowMarker');
+            arrowMarker.setAttribute('viewBox', '0 0 8 8');
+            arrowMarker.setAttribute('refX', '7');
+            arrowMarker.setAttribute('refY', '4');
+            arrowMarker.setAttribute('markerWidth', '8');
+            arrowMarker.setAttribute('markerHeight', '8');
+            arrowMarker.setAttribute('markerUnits', 'userSpaceOnUse');
+            arrowMarker.setAttribute('orient', 'auto-start-reverse');
+            const arrowHead = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            arrowHead.setAttribute('d', 'M 0 0 L 8 4 L 0 8 z');
+            arrowHead.setAttribute('fill', '#b91c1c');
+            arrowMarker.appendChild(arrowHead);
+            defs.appendChild(arrowMarker);
+            svg.appendChild(defs);
+
+            appState.joins.forEach(join => {
+                const cardFrom = document.querySelector(`[data-table-name="${join.fromTable}"]`);
+                const cardTo = document.querySelector(`[data-table-name="${join.toTable}"]`);
+
+                if (!cardFrom || !cardTo) return;
+
+                const fieldFromElem = document.getElementById(`field_${join.fromTable}_${join.fromField}`);
+                const fieldToElem = document.getElementById(`field_${join.toTable}_${join.toField}`);
+
+                const rectCanvas = document.getElementById('erdCanvas').getBoundingClientRect();
+                const rectFrom = cardFrom.getBoundingClientRect();
+                const rectTo = cardTo.getBoundingClientRect();
+
+                // Calculer coordonnées exactes du champ ou centre de la carte
+                let x1 = rectFrom.left - rectCanvas.left + rectFrom.width / 2;
+                let y1 = rectFrom.top - rectCanvas.top + rectFrom.height / 2;
+                if (fieldFromElem) {
+                    const fRect = fieldFromElem.getBoundingClientRect();
+                    x1 = rectFrom.left - rectCanvas.left + (rectFrom.left < rectTo.left ? rectFrom.width : 0);
+                    y1 = fRect.top - rectCanvas.top + fRect.height / 2;
+                }
+
+                let x2 = rectTo.left - rectCanvas.left + rectTo.width / 2;
+                let y2 = rectTo.top - rectCanvas.top + rectTo.height / 2;
+                if (fieldToElem) {
+                    const tRect = fieldToElem.getBoundingClientRect();
+                    x2 = rectTo.left - rectCanvas.left + (rectTo.left < rectFrom.left ? rectTo.width : 0);
+                    y2 = tRect.top - rectCanvas.top + tRect.height / 2;
+                }
+
+                // Dessiner la ligne SVG cliquable
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', x1);
+                line.setAttribute('y1', y1);
+                line.setAttribute('x2', x2);
+                line.setAttribute('y2', y2);
+                line.setAttribute('class', 'join-line');
+                line.setAttribute('stroke-linecap', 'round');
+                const joinStroke = join.type === 'INNER' ? '#434343' : '#b91c1c';
+                line.setAttribute('stroke', joinStroke);
+                if (join.type === 'LEFT') line.setAttribute('marker-end', 'url(#joinArrowMarker)');
+                if (join.type === 'RIGHT') line.setAttribute('marker-start', 'url(#joinArrowMarker)');
+                line.setAttribute('data-join-id', join.id);
+                line.setAttribute('data-join-type', join.type);
+                line.style.pointerEvents = 'all';
+                line.style.cursor = 'pointer';
+                const lineTitle = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+                lineTitle.textContent = join.type === 'LEFT'
+                    ? `LEFT JOIN : toutes les lignes de ${join.fromTable}, flèche vers ${join.toTable}`
+                    : join.type === 'RIGHT'
+                        ? `RIGHT JOIN : toutes les lignes de ${join.toTable}, flèche vers ${join.fromTable}`
+                        : 'INNER JOIN : uniquement les lignes correspondantes';
+                line.appendChild(lineTitle);
+                line.onclick = () => openJoinModal(join.id);
+                line.ondblclick = (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openJoinModal(join.id);
+                };
+                line.onmouseover = () => {
+                    line.setAttribute('stroke', '#005a9e');
+                    line.setAttribute('stroke-width', '3');
+                };
+                line.onmouseout = () => {
+                    line.setAttribute('stroke', joinStroke);
+                    line.setAttribute('stroke-width', '2');
+                };
+
+                // Indicateur visuel selon le type de jointure
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', (x1 + x2) / 2);
+                circle.setAttribute('cy', (y1 + y2) / 2);
+                circle.setAttribute('r', '6');
+                circle.setAttribute('fill', joinStroke);
+                circle.setAttribute('cursor', 'pointer');
+                circle.setAttribute('data-join-id', join.id);
+                circle.onclick = () => openJoinModal(join.id);
+                circle.ondblclick = (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openJoinModal(join.id);
+                };
+
+                svg.appendChild(line);
+                svg.appendChild(circle);
+            });
+        }
+
+        // Modal de Propriétés de Jointure (MS Access Style)
+        function openJoinModal(joinId) {
+            appState.activeJoinId = joinId;
+            const join = appState.joins.find(j => j.id === joinId);
+            if (!join) return;
+
+            document.getElementById('joinModalDesc').textContent = `Jointure entre [${join.fromTable}.${join.fromField}] et [${join.toTable}.${join.toField}] :`;
+            document.querySelector(`input[name="joinType"][value="${join.type}"]`).checked = true;
+            document.getElementById('joinModal').classList.remove('hidden');
+        }
+
+        function closeJoinModal() {
+            document.getElementById('joinModal').classList.add('hidden');
+            appState.activeJoinId = null;
+        }
+
+        function saveJoinProperties() {
+            if (!appState.activeJoinId) return;
+            const selectedType = document.querySelector('input[name="joinType"]:checked').value;
+            const join = appState.joins.find(j => j.id === appState.activeJoinId);
+            if (join) {
+                join.type = selectedType;
+            }
+            closeJoinModal();
+            renderSvgJoins();
+        }
+
+        function deleteCurrentJoin() {
+            if (!appState.activeJoinId) return;
+            appState.joins = appState.joins.filter(j => j.id !== appState.activeJoinId);
+            closeJoinModal();
+            renderSvgJoins();
+        }
+
+        // Initialisation de la grille de requête (Query Grid)
+        function initQueryGrid() {
+            appState.queryGridRows = Array.from({ length: 8 }, () => ({ field: '', table: '', show: false, sort: '', criteria: '', or: '' }));
+            renderQueryGrid();
+        }
+
+        function renderQueryGrid() {
+            const tbody = document.getElementById('queryGridBody');
+            tbody.innerHTML = '';
+            const gridRows = [
+                { label: 'Champ :', key: 'field', control: 'text', placeholder: 'Champ' },
+                { label: 'Table :', key: 'table', control: 'text', placeholder: 'Table' },
+                { label: 'Tri :', key: 'sort', control: 'sort' },
+                { label: 'Afficher :', key: 'show', control: 'checkbox' },
+                { label: 'Critères :', key: 'criteria', control: 'text', placeholder: 'Critère' },
+                { label: 'Ou :', key: 'or', control: 'text', placeholder: 'Ou' }
+            ];
+
+            gridRows.forEach((gridRow, gridRowIndex) => {
+                const tr = document.createElement('tr');
+                const label = document.createElement('td');
+                label.className = 'access-grid-header p-1 text-left whitespace-nowrap';
+                label.style.minWidth = '90px';
+                label.textContent = gridRow.label;
+                tr.appendChild(label);
+
+                appState.queryGridRows.forEach((queryRow, columnIndex) => {
+                    const td = document.createElement('td');
+                    td.className = `access-grid-cell p-1 ${gridRow.control === 'checkbox' ? 'text-center' : ''}`;
+                    td.style.minWidth = '140px';
+                    td.dataset.queryColumn = columnIndex;
+                    td.addEventListener('dragover', allowQueryColumnDrop);
+                    td.addEventListener('drop', event => dropQueryColumn(event, columnIndex));
+
+                    if (gridRow.control === 'sort') {
+                        const select = document.createElement('select');
+                        select.className = 'w-full bg-transparent px-1 focus:bg-white focus:outline-none text-xs';
+                        select.dataset.row = columnIndex;
+                        select.dataset.col = 'sort';
+                        select.onchange = updateQueryGrid;
+                        [['', '(Aucun)'], ['ASC', 'Croissant'], ['DESC', 'Décroissant']].forEach(([value, text]) => {
+                            const option = document.createElement('option');
+                            option.value = value;
+                            option.textContent = text;
+                            select.appendChild(option);
+                        });
+                        select.value = queryRow.sort;
+                        td.appendChild(select);
+                    } else if (gridRow.control === 'checkbox') {
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.checked = queryRow.show;
+                        checkbox.dataset.row = columnIndex;
+                        checkbox.dataset.col = 'show';
+                        checkbox.onchange = updateQueryGrid;
+                        td.appendChild(checkbox);
+                    } else {
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.className = gridRow.key === 'field'
+                            ? 'min-w-0 flex-1 bg-transparent px-1 focus:bg-white focus:outline-none'
+                            : 'w-full bg-transparent px-1 focus:bg-white focus:outline-none';
+                        input.dataset.row = columnIndex;
+                        input.dataset.col = gridRow.key;
+                        input.placeholder = gridRow.placeholder;
+                        input.value = queryRow[gridRow.key];
+                        input.oninput = updateQueryGrid;
+                        input.onchange = updateQueryGrid;
+
+                        if (gridRow.key === 'field') {
+                            const controls = document.createElement('div');
+                            controls.className = 'flex items-center gap-1';
+
+                            const dragHandle = document.createElement('button');
+                            dragHandle.type = 'button';
+                            dragHandle.className = 'text-gray-400 hover:text-gray-700 cursor-grab px-1';
+                            dragHandle.draggable = true;
+                            dragHandle.title = 'Glisser pour déplacer le champ';
+                            dragHandle.setAttribute('aria-label', 'Déplacer le champ');
+                            dragHandle.innerHTML = '<i class="fa-solid fa-grip-vertical"></i>';
+                            dragHandle.addEventListener('dragstart', event => startQueryColumnDrag(event, columnIndex));
+
+                            const removeButton = document.createElement('button');
+                            removeButton.type = 'button';
+                            removeButton.className = 'shrink-0 rounded px-1 text-red-600 hover:bg-red-50 hover:text-red-800';
+                            removeButton.title = 'Retirer ce champ de la requête';
+                            removeButton.setAttribute('aria-label', 'Retirer ce champ');
+                            removeButton.dataset.row = columnIndex;
+                            removeButton.style.display = queryRow.field ? 'inline-flex' : 'none';
+                            removeButton.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+                            removeButton.onclick = () => removeQueryField(columnIndex);
+
+                            controls.append(dragHandle, input, removeButton);
+                            td.appendChild(controls);
+                        } else {
+                            td.appendChild(input);
+                        }
+                    }
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+            syncQueryFieldHighlights();
+        }
+
+        let draggedQueryColumn = null;
+
+        function startQueryColumnDrag(event, columnIndex) {
+            draggedQueryColumn = columnIndex;
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', String(columnIndex));
+        }
+
+        function allowQueryColumnDrop(event) {
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+        }
+
+        function dropQueryColumn(event, targetIndex) {
+            event.preventDefault();
+            event.stopPropagation();
+            const transferredIndex = Number(event.dataTransfer?.getData('text/plain'));
+            const sourceIndex = Number.isInteger(transferredIndex) && transferredIndex >= 0
+                ? transferredIndex
+                : draggedQueryColumn;
+            draggedQueryColumn = null;
+            if (sourceIndex === null || sourceIndex === targetIndex || sourceIndex >= appState.queryGridRows.length) return;
+
+            const [movedColumn] = appState.queryGridRows.splice(sourceIndex, 1);
+            appState.queryGridRows.splice(targetIndex, 0, movedColumn);
+            renderQueryGrid();
+        }
+
+        function removeQueryField(columnIndex) {
+            appState.queryGridRows.splice(columnIndex, 1);
+            appState.queryGridRows.push({ field: '', table: '', show: false, sort: '', criteria: '', or: '' });
+            renderQueryGrid();
+        }
+
+        function selectFieldForQuery(tableName, fieldName) {
+            // Insérer automatiquement dans la première ligne vide de la grille
+            for (let i = 0; i < appState.queryGridRows.length; i++) {
+                if (!appState.queryGridRows[i].field) {
+                    appState.queryGridRows[i].field = fieldName;
+                    appState.queryGridRows[i].table = tableName;
+                    appState.queryGridRows[i].show = true;
+
+                    // Mettre à jour l'UI de la grille
+                    const tbody = document.getElementById('queryGridBody');
+                    tbody.querySelector(`[data-row="${i}"][data-col="field"]`).value = fieldName;
+                    tbody.querySelector(`[data-row="${i}"][data-col="table"]`).value = tableName;
+                    tbody.querySelector(`[data-row="${i}"][data-col="show"]`).checked = true;
+                    tbody.querySelector(`[data-row="${i}"][aria-label="Retirer ce champ"]`).style.display = 'inline-flex';
+                    syncQueryFieldHighlights();
+                    break;
+                }
+            }
+        }
+
+        function updateQueryGrid(e) {
+            const row = parseInt(e.target.dataset.row);
+            const col = e.target.dataset.col;
+            if (col === 'show') {
+                appState.queryGridRows[row][col] = e.target.checked;
+            } else {
+                appState.queryGridRows[row][col] = e.target.value;
+                if (col === 'field') {
+                    const hasField = Boolean(e.target.value.trim());
+                    appState.queryGridRows[row].show = hasField;
+                    const showCheckbox = document.querySelector(`#queryGridBody [data-row="${row}"][data-col="show"]`);
+                    if (showCheckbox) showCheckbox.checked = hasField;
+                    const removeButton = document.querySelector(`#queryGridBody [data-row="${row}"][aria-label="Retirer ce champ"]`);
+                    if (removeButton) removeButton.style.display = hasField ? 'inline-flex' : 'none';
+                }
+            }
+            if (col === 'field' || col === 'table') syncQueryFieldHighlights();
+        }
+
+        function syncQueryFieldHighlights() {
+            document.querySelectorAll('.field-row.query-field-selected').forEach(element => {
+                element.classList.remove('query-field-selected');
+            });
+            appState.queryGridRows.forEach(queryRow => {
+                if (!queryRow.field || !queryRow.table) return;
+                const fieldElement = document.getElementById(`field_${queryRow.table}_${queryRow.field}`);
+                if (fieldElement) fieldElement.classList.add('query-field-selected');
+            });
+        }
+
+        // Exécuter et afficher les résultats de la requête (Datasheet View)
+        function runQueryPreview() {
+            const results = executeQueryEngine();
+            const container = document.getElementById('dataPreviewContainer');
+            container.innerHTML = '';
+
+            if (results.length === 0) {
+                container.innerHTML = '<div class="text-gray-500 text-center py-8 italic">Aucun enregistrement ne correspond aux critères de la requête.</div>';
+                document.getElementById('dataPreviewCount').textContent = '0 enregistrement(s)';
+                document.getElementById('dataPreviewModal').classList.remove('hidden');
+                return;
+            }
+
+            // Récupérer les colonnes actives cochées dans la grille
+            let activeColumns = appState.queryGridRows.filter(r => r.show && r.field).map(r => ({ field: r.field, table: r.table }));
+            if (activeColumns.length === 0) {
+                // Par défaut, afficher toutes les colonnes de la première table
+                const firstTable = Object.keys(appState.tables)[0];
+                if (firstTable) {
+                    activeColumns = Object.keys(appState.tables[firstTable][0] || {}).map(f => ({ field: f, table: firstTable }));
+                }
+            }
+
+            let html = '<table class="w-full border-collapse bg-white shadow-sm text-xs"><thead><tr class="bg-gray-200 border-b border-gray-300">';
+            activeColumns.forEach(col => {
+                html += `<th class="p-2 text-left border-r border-gray-300 font-bold text-gray-700">${col.table ? col.table + '.' : ''}${col.field}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+
+            results.forEach((row, idx) => {
+                html += `<tr class="border-b border-gray-200 hover:bg-blue-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}">`;
+                activeColumns.forEach(col => {
+                    const val = row[col.table ? `${col.table}.${col.field}` : col.field] !== undefined ? row[col.table ? `${col.table}.${col.field}` : col.field] : (row[col.field] || '');
+                    html += `<td class="p-2 border-r border-gray-200 text-gray-800">${val}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+
+            container.innerHTML = html;
+            document.getElementById('dataPreviewCount').textContent = `${results.length} enregistrement(s) trouvé(s)`;
+            document.getElementById('dataPreviewModal').classList.remove('hidden');
+        }
+
+        // Moteur de requête local simulant MS Access
+        function executeQueryEngine() {
+            const tableNames = Object.keys(appState.tables);
+            if (tableNames.length === 0) return [];
+
+            // Prendre la première table comme base
+            let primaryTable = tableNames[0];
+            let rows = [...appState.tables[primaryTable].map(r => {
+                let obj = {};
+                for (let k in r) obj[`${primaryTable}.${k}`] = r[k];
+                obj['__table'] = primaryTable;
+                return obj;
+            })];
+
+            // Appliquer les jointures définies
+            appState.joins.forEach(join => {
+                const targetTableData = appState.tables[join.toTable] || [];
+                let newRows = [];
+
+                rows.forEach(row => {
+                    const joinVal = row[`${join.fromTable}.${join.fromField}`];
+                    let matched = false;
+
+                    targetTableData.forEach(targetRow => {
+                        if (targetRow[join.toField] === joinVal) {
+                            matched = true;
+                            let combined = { ...row };
+                            for (let k in targetRow) {
+                                combined[`${join.toTable}.${k}`] = targetRow[k];
+                            }
+                            newRows.push(combined);
+                        }
+                    });
+
+                    if (!matched && (join.type === 'LEFT' || join.type === 'RIGHT')) {
+                        let combined = { ...row };
+                        targetTableData.forEach(targetRow => {
+                            for (let k in targetRow) {
+                                combined[`${join.toTable}.${k}`] = '';
+                            }
+                        });
+                        newRows.push(combined);
+                    }
+                });
+                if (newRows.length > 0) rows = newRows;
+            });
+
+            // Appliquer les critères de la grille
+            appState.queryGridRows.forEach(qRow => {
+                if (!qRow.field || !qRow.criteria) return;
+                const fieldKey = qRow.table ? `${qRow.table}.${qRow.field}` : qRow.field;
+                const criteria = qRow.criteria.trim();
+
+                rows = rows.filter(row => {
+                    let val = row[fieldKey] !== undefined ? row[fieldKey] : row[qRow.field];
+                    if (val === undefined) return false;
+
+                    if (criteria.startsWith('=')) {
+                        return val == criteria.substring(1).trim().replace(/['"]/g, '');
+                    } else if (criteria.startsWith('>')) {
+                        return parseFloat(val) > parseFloat(criteria.substring(1));
+                    } else if (criteria.startsWith('<')) {
+                        return parseFloat(val) < parseFloat(criteria.substring(1));
+                    } else {
+                        return String(val).toLowerCase().includes(criteria.toLowerCase().replace(/['"]/g, ''));
+                    }
+                });
+            });
+
+            // Appliquer les tris (sort)
+            appState.queryGridRows.forEach(qRow => {
+                if (!qRow.field || !qRow.sort) return;
+                const fieldKey = qRow.table ? `${qRow.table}.${qRow.field}` : qRow.field;
+                rows.sort((a, b) => {
+                    let va = a[fieldKey] !== undefined ? a[fieldKey] : a[qRow.field];
+                    let vb = b[fieldKey] !== undefined ? b[fieldKey] : b[qRow.field];
+                    if (va < vb) return qRow.sort === 'ASC' ? -1 : 1;
+                    if (va > vb) return qRow.sort === 'ASC' ? 1 : -1;
+                    return 0;
+                });
+            });
+
+            let groupingColumns = appState.queryGridRows
+                .filter(qRow => qRow.show && qRow.field)
+                .map(qRow => ({ field: qRow.field, table: qRow.table }));
+            if (groupingColumns.length === 0) {
+                groupingColumns = Object.keys(appState.tables[primaryTable][0] || {})
+                    .map(field => ({ field, table: primaryTable }));
+            }
+
+            const groupedRows = new Map();
+            rows.forEach(row => {
+                const groupKey = JSON.stringify(groupingColumns.map(column => {
+                    const fieldKey = column.table ? `${column.table}.${column.field}` : column.field;
+                    return row[fieldKey] !== undefined ? row[fieldKey] : row[column.field] ?? null;
+                }));
+                if (!groupedRows.has(groupKey)) groupedRows.set(groupKey, row);
+            });
+
+            return Array.from(groupedRows.values());
+        }
+
+        // Exporter vers Excel (.xlsx) multi-onglets via SheetJS
+        function executeAndExportExcel() {
+            const tableNames = Object.keys(appState.tables);
+            if (tableNames.length === 0) {
+                alert("Aucune table à exporter.");
+                return;
+            }
+
+            const wb = XLSX.utils.book_new();
+
+            tableNames.forEach(tName => {
+                const data = appState.tables[tName];
+                const ws = XLSX.utils.json_to_sheet(data);
+                // Nom d'onglet limité à 31 caractères (contrainte Excel)
+                const sheetName = tName.substring(0, 31);
+                XLSX.utils.book_append_sheet(wb, ws, sheetName);
+            });
+
+            const outputFilename = appState.fileName.replace(/\.[^/.]+$/, "") + "_ExportAccess.xlsx";
+            XLSX.writeFile(wb, outputFilename);
+        }
+
+        // Export du projet en JSON
+        function exportJSONProject() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(appState, null, 2));
+            const dlAnchor = document.createElement('a');
+            dlAnchor.setAttribute("href", dataStr);
+            dlAnchor.setAttribute("download", appState.fileName + "_project.json");
+            document.body.appendChild(dlAnchor);
+            dlAnchor.click();
+            dlAnchor.remove();
+        }
+
+        function closeDataPreviewModal() {
+            document.getElementById('dataPreviewModal').classList.add('hidden');
+        }
+
+        function updateStatusBar() {
+            const tableCount = Object.keys(appState.tables).length;
+            let totalRows = 0;
+            for (let t in appState.tables) {
+                totalRows += appState.tables[t].length;
+            }
+            document.getElementById('statusBarTablesCount').textContent = `${tableCount} table(s) chargée(s)`;
+            document.getElementById('statusBarRowsCount').textContent = `${totalRows} ligne(s) au total`;
+            document.getElementById('statusBarMode').textContent = 'Prêt';
+        }
+
+        function switchRibbonTab(tabName) {
+            document.querySelectorAll('.access-tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+
+        function minimizeWindow() { alert("Fenêtre minimisée"); }
+        function maximizeWindow() { document.documentElement.requestFullscreen(); }
+        function closeWindow() { if(confirm("Fermer l'application ?")) window.close(); }
+    </script>
+</body>
+</html>
