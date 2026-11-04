@@ -873,7 +873,7 @@
 
         // Initialisation de la grille de requête (Query Grid)
         function initQueryGrid() {
-            appState.queryGridRows = Array.from({ length: 8 }, () => ({ field: '', table: '', show: false, sort: '', criteria: '', or: '' }));
+            appState.queryGridRows = Array.from({ length: 8 }, () => ({ field: '', table: '', alias: '', expression: '', show: false, sort: '', criteria: '', or: '', width: 180 }));
             renderQueryGrid();
         }
 
@@ -900,7 +900,8 @@
                 appState.queryGridRows.forEach((queryRow, columnIndex) => {
                     const td = document.createElement('td');
                     td.className = `access-grid-cell p-1 ${gridRow.control === 'checkbox' ? 'text-center' : ''}`;
-                    td.style.minWidth = '140px';
+                    td.style.width = `${queryRow.width}px`;
+                    td.style.minWidth = `${queryRow.width}px`;
                     td.dataset.queryColumn = columnIndex;
                     td.addEventListener('dragover', allowQueryColumnDrop);
                     td.addEventListener('drop', event => dropQueryColumn(event, columnIndex));
@@ -936,7 +937,12 @@
                         input.dataset.row = columnIndex;
                         input.dataset.col = gridRow.key;
                         input.placeholder = gridRow.placeholder;
-                        input.value = queryRow[gridRow.key];
+                        input.value = gridRow.key === 'field'
+                            ? (queryRow.expression || queryRow.field)
+                            : queryRow[gridRow.key];
+                        if (gridRow.key === 'field') {
+                            input.title = 'Syntaxe Access pour renommer : NomAffiche: ChampSource';
+                        }
                         input.oninput = updateQueryGrid;
                         input.onchange = updateQueryGrid;
 
@@ -963,7 +969,15 @@
                             removeButton.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
                             removeButton.onclick = () => removeQueryField(columnIndex);
 
-                            controls.append(dragHandle, input, removeButton);
+                            const resizeHandle = document.createElement('button');
+                            resizeHandle.type = 'button';
+                            resizeHandle.className = 'w-2 shrink-0 self-stretch cursor-col-resize border-r-2 border-gray-300 hover:border-blue-600';
+                            resizeHandle.title = 'Glisser pour ajuster la largeur';
+                            resizeHandle.setAttribute('aria-label', 'Ajuster la largeur de la colonne');
+                            resizeHandle.dataset.queryColumn = columnIndex;
+                            resizeHandle.addEventListener('mousedown', event => startQueryColumnResize(event, columnIndex));
+
+                            controls.append(dragHandle, input, removeButton, resizeHandle);
                             td.appendChild(controls);
                         } else {
                             td.appendChild(input);
@@ -977,6 +991,39 @@
         }
 
         let draggedQueryColumn = null;
+        let resizingQueryColumn = null;
+
+        function startQueryColumnResize(event, columnIndex) {
+            event.preventDefault();
+            resizingQueryColumn = {
+                index: columnIndex,
+                startX: event.clientX,
+                startWidth: appState.queryGridRows[columnIndex].width
+            };
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            document.addEventListener('mousemove', resizeQueryColumn);
+            document.addEventListener('mouseup', stopQueryColumnResize);
+        }
+
+        function resizeQueryColumn(event) {
+            if (!resizingQueryColumn) return;
+            const width = Math.max(100, resizingQueryColumn.startWidth + event.clientX - resizingQueryColumn.startX);
+            const columnIndex = resizingQueryColumn.index;
+            appState.queryGridRows[columnIndex].width = width;
+            document.querySelectorAll(`#queryGridBody td[data-query-column="${columnIndex}"]`).forEach(cell => {
+                cell.style.width = `${width}px`;
+                cell.style.minWidth = `${width}px`;
+            });
+        }
+
+        function stopQueryColumnResize() {
+            resizingQueryColumn = null;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', resizeQueryColumn);
+            document.removeEventListener('mouseup', stopQueryColumnResize);
+        }
 
         function startQueryColumnDrag(event, columnIndex) {
             draggedQueryColumn = columnIndex;
@@ -1006,8 +1053,23 @@
 
         function removeQueryField(columnIndex) {
             appState.queryGridRows.splice(columnIndex, 1);
-            appState.queryGridRows.push({ field: '', table: '', show: false, sort: '', criteria: '', or: '' });
+            appState.queryGridRows.push({ field: '', table: '', alias: '', expression: '', show: false, sort: '', criteria: '', or: '', width: 180 });
             renderQueryGrid();
+        }
+
+        function parseQueryFieldExpression(expression) {
+            const separatorIndex = expression.indexOf(':');
+            const alias = separatorIndex >= 0
+                ? expression.slice(0, separatorIndex).trim().replace(/^\[|\]$/g, '')
+                : '';
+            const sourceExpression = (separatorIndex >= 0 ? expression.slice(separatorIndex + 1) : expression).trim();
+            const sourceParts = sourceExpression.split('.').map(part => part.trim().replace(/^\[|\]$/g, ''));
+            const field = sourceParts.pop() || '';
+            return {
+                alias,
+                field,
+                table: sourceParts.join('.')
+            };
         }
 
         function selectFieldForQuery(tableName, fieldName) {
@@ -1016,6 +1078,8 @@
                 if (!appState.queryGridRows[i].field) {
                     appState.queryGridRows[i].field = fieldName;
                     appState.queryGridRows[i].table = tableName;
+                    appState.queryGridRows[i].alias = '';
+                    appState.queryGridRows[i].expression = fieldName;
                     appState.queryGridRows[i].show = true;
 
                     // Mettre à jour l'UI de la grille
@@ -1038,7 +1102,17 @@
             } else {
                 appState.queryGridRows[row][col] = e.target.value;
                 if (col === 'field') {
-                    const hasField = Boolean(e.target.value.trim());
+                    const queryRow = appState.queryGridRows[row];
+                    const parsedExpression = parseQueryFieldExpression(e.target.value);
+                    queryRow.expression = e.target.value;
+                    queryRow.field = parsedExpression.field;
+                    queryRow.alias = parsedExpression.alias;
+                    if (parsedExpression.table) {
+                        queryRow.table = parsedExpression.table;
+                        const tableInput = document.querySelector(`#queryGridBody [data-row="${row}"][data-col="table"]`);
+                        if (tableInput) tableInput.value = parsedExpression.table;
+                    }
+                    const hasField = Boolean(parsedExpression.field);
                     appState.queryGridRows[row].show = hasField;
                     const showCheckbox = document.querySelector(`#queryGridBody [data-row="${row}"][data-col="show"]`);
                     if (showCheckbox) showCheckbox.checked = hasField;
@@ -1074,7 +1148,9 @@
             }
 
             // Récupérer les colonnes actives cochées dans la grille
-            let activeColumns = appState.queryGridRows.filter(r => r.show && r.field).map(r => ({ field: r.field, table: r.table }));
+            let activeColumns = appState.queryGridRows
+                .filter(row => row.show && row.field)
+                .map(row => ({ field: row.field, table: row.table, alias: row.alias }));
             if (activeColumns.length === 0) {
                 // Par défaut, afficher toutes les colonnes de la première table
                 const firstTable = Object.keys(appState.tables)[0];
@@ -1085,7 +1161,8 @@
 
             let html = '<table class="w-full border-collapse bg-white shadow-sm text-xs"><thead><tr class="bg-gray-200 border-b border-gray-300">';
             activeColumns.forEach(col => {
-                html += `<th class="p-2 text-left border-r border-gray-300 font-bold text-gray-700">${col.table ? col.table + '.' : ''}${col.field}</th>`;
+                const heading = col.alias || `${col.table ? col.table + '.' : ''}${col.field}`;
+                html += `<th class="p-2 text-left border-r border-gray-300 font-bold text-gray-700">${heading}</th>`;
             });
             html += '</tr></thead><tbody>';
 
