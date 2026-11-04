@@ -60,7 +60,7 @@
                     <i class="fa-solid fa-folder-open text-xl text-amber-600 mb-1"></i>
                     <span>Ajouter XML</span>
                 </button>
-                <input type="file" id="xmlFileInput" accept=".xml" class="hidden" onchange="handleFileSelect(event)">
+                <input type="file" id="xmlFileInput" accept=".xml" multiple class="hidden" onchange="handleFileSelect(event)">
             </div>
             <div class="flex flex-col items-center border-r pr-4 border-gray-200">
                 <button onclick="deleteAllTables()" class="flex flex-col items-center hover:bg-red-50 p-1.5 rounded text-gray-700">
@@ -78,6 +78,12 @@
                 <button id="executeQueryButton" onclick="runQueryPreview()" class="flex flex-col items-center bg-red-700 hover:bg-red-800 text-white p-1.5 rounded font-semibold shadow-sm disabled:opacity-60 disabled:cursor-wait">
                     <i class="fa-solid fa-play text-xl mb-1"></i>
                     <span>Exécuter la requête</span>
+                </button>
+            </div>
+            <div class="flex flex-col items-center border-r pr-4 border-gray-200">
+                <button id="showSqlButton" onclick="showSqlView()" disabled title="Sélectionnez une requête enregistrée" class="flex flex-col items-center p-1.5 rounded text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent">
+                    <i class="fa-solid fa-code text-xl text-cyan-700 mb-1"></i>
+                    <span>Afficher SQL</span>
                 </button>
             </div>
             <div class="flex flex-col items-center">
@@ -193,6 +199,20 @@
                     <div class="font-semibold text-gray-800">Exécution de la requête...</div>
                     <div class="mt-1 text-gray-600">Le traitement peut prendre quelques instants.</div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="sqlViewModal" class="fixed inset-0 bg-black/50 z-[65] hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="sqlViewTitle">
+        <div class="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded border border-gray-400 bg-white shadow-2xl">
+            <div class="flex items-center justify-between bg-[#b91c1c] px-4 py-2 font-bold text-white">
+                <span id="sqlViewTitle"><i class="fa-solid fa-code mr-2"></i>Requête en mode SQL</span>
+                <button type="button" onclick="closeSqlView()" class="text-lg" aria-label="Fermer"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <textarea id="sqlQueryText" oninput="updateSqlEditorState()" spellcheck="false" autocapitalize="off" autocomplete="off" class="min-h-48 w-full flex-1 resize-none overflow-auto whitespace-pre bg-[#1f2937] p-4 font-mono text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-600"></textarea>
+            <div class="flex justify-between border-t border-gray-300 bg-gray-100 px-4 py-2">
+                <button id="saveSqlButton" type="button" onclick="saveSqlView()" disabled class="rounded bg-blue-700 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">Enregistrer SQL</button>
+                <button type="button" onclick="closeSqlView()" class="rounded bg-gray-700 px-4 py-1.5 text-xs font-semibold text-white hover:bg-gray-800">Fermer</button>
             </div>
         </div>
     </div>
@@ -322,6 +342,7 @@
         const QUERY_DRAFT_KEY = 'xml2data.queryDraft';
         let savedQueries = [];
         let activeQueryId = null;
+        let activeSqlText = null;
         let savedQueryDefinition = '';
         let skipUnloadWarning = false;
         let pendingCloseAfterSave = false;
@@ -383,6 +404,7 @@
             loadSavedQueries();
             savedQueryDefinition = getQueryDefinition();
             restoreQueryDraft();
+            updateSqlButtonState();
             document.addEventListener('input', updateSaveButtonState);
             document.addEventListener('change', updateSaveButtonState);
             document.addEventListener('click', updateSaveButtonState);
@@ -396,7 +418,8 @@
             return JSON.stringify({
                 canvasTables: appState.canvasTables,
                 joins: appState.joins,
-                queryGridRows: appState.queryGridRows
+                queryGridRows: appState.queryGridRows,
+                sqlText: activeSqlText
             });
         }
 
@@ -406,6 +429,16 @@
             const hasChanges = getQueryDefinition() !== savedQueryDefinition;
             button.disabled = !hasChanges;
             button.title = hasChanges ? 'Enregistrer les modifications de la requête' : 'Aucune modification à enregistrer';
+            const sqlSaveButton = document.getElementById('saveSqlButton');
+            if (sqlSaveButton) sqlSaveButton.disabled = !hasChanges;
+        }
+
+        function updateSqlButtonState() {
+            const button = document.getElementById('showSqlButton');
+            if (!button) return;
+            const hasSelectedQuery = savedQueries.some(query => query.id === activeQueryId);
+            button.disabled = !hasSelectedQuery;
+            button.title = hasSelectedQuery ? 'Afficher la requête sélectionnée en SQL' : 'Sélectionnez une requête enregistrée';
         }
 
         function loadSavedQueries() {
@@ -531,6 +564,8 @@
             appState.canvasTables = [];
             appState.joins = [];
             activeQueryId = null;
+            activeSqlText = null;
+            updateSqlButtonState();
             initQueryGrid();
             savedQueryDefinition = getQueryDefinition();
             updateSaveButtonState();
@@ -544,6 +579,7 @@
             Object.assign(query, JSON.parse(getQueryDefinition()), { updatedAt: new Date().toISOString() });
             if (!persistSavedQueries()) return false;
             activeQueryId = query.id;
+            updateSqlButtonState();
             savedQueryDefinition = getQueryDefinition();
             updateSaveButtonState();
             localStorage.removeItem(QUERY_DRAFT_KEY);
@@ -560,9 +596,11 @@
             appState.canvasTables = query.canvasTables || [];
             appState.joins = query.joins || [];
             appState.queryGridRows = query.queryGridRows || [];
+            activeSqlText = typeof query.sqlText === 'string' ? query.sqlText : null;
             if (appState.queryGridRows.length === 0) initQueryGrid();
             else renderQueryGrid();
             activeQueryId = query.id;
+            updateSqlButtonState();
             savedQueryDefinition = getQueryDefinition();
             updateSaveButtonState();
             refreshNavigationPane();
@@ -576,6 +614,7 @@
             if (!query || !confirm(`Supprimer la requête « ${query.name} » ?`)) return;
             savedQueries = savedQueries.filter(item => item.id !== queryId);
             if (activeQueryId === queryId) activeQueryId = null;
+            updateSqlButtonState();
             persistSavedQueries();
             renderSavedQueries();
         }
@@ -596,6 +635,8 @@
             appState.joins = draft.joins || [];
             appState.queryGridRows = draft.queryGridRows || appState.queryGridRows;
             activeQueryId = draft.activeQueryId || null;
+            activeSqlText = typeof draft.sqlText === 'string' ? draft.sqlText : null;
+            updateSqlButtonState();
             renderQueryGrid();
             refreshNavigationPane();
             renderCanvasTables();
@@ -609,7 +650,8 @@
                     canvasTables: appState.canvasTables,
                     joins: appState.joins,
                     queryGridRows: appState.queryGridRows,
-                    activeQueryId
+                    activeQueryId,
+                    sqlText: activeSqlText
                 }));
             } catch (error) {
                 // L'avertissement de fermeture reste actif même si le stockage est indisponible.
@@ -624,40 +666,64 @@
         }
 
         // Sélectionner un fichier XML local
-        function handleFileSelect(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            showXmlLoading('Lecture du fichier XML...', 0);
-            reader.onprogress = progressEvent => {
-                if (progressEvent.lengthComputable) {
-                    showXmlLoading('Lecture du fichier XML...', progressEvent.loaded / progressEvent.total * 100);
-                }
-            };
-            reader.onload = function(e) {
-                showXmlLoading('Analyse du XML en cours...', null);
-                requestAnimationFrame(() => {
-                    setTimeout(() => {
-                        try {
-                            loadXMLFromString(e.target.result, file.name);
-                        } finally {
-                            hideXmlLoading();
-                        }
-                    }, 0);
-                });
-            };
-            reader.onerror = function() {
-                hideXmlLoading();
-                alert("Impossible de lire ce fichier XML.");
-            };
-            reader.onabort = hideXmlLoading;
-            try {
-                reader.readAsText(file, "UTF-8");
-            } catch (error) {
-                hideXmlLoading();
-                alert("Impossible de lire ce fichier XML : " + error.message);
-            }
+        async function handleFileSelect(event) {
+            const files = Array.from(event.target.files || []);
             event.target.value = '';
+            if (files.length === 0) return;
+
+            const addedTableNames = [];
+            const existingTableNames = [];
+            const errors = [];
+            showXmlLoading(`Préparation de ${files.length} fichier(s) XML...`, 0);
+
+            for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
+                const file = files[fileIndex];
+                const fileProgress = progress => {
+                    const totalProgress = ((fileIndex + progress) / files.length) * 100;
+                    showXmlLoading(`Lecture ${fileIndex + 1}/${files.length} : ${file.name}`, totalProgress);
+                };
+
+                try {
+                    const xmlString = await readXmlFile(file, fileProgress);
+                    showXmlLoading(`Analyse ${fileIndex + 1}/${files.length} : ${file.name}`, null);
+                    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+                    const result = loadXMLFromString(xmlString, file.name, false, true);
+                    addedTableNames.push(...result.addedTableNames);
+                    existingTableNames.push(...result.existingTableNames);
+                } catch (error) {
+                    errors.push(`${file.name} : ${error.message || error}`);
+                }
+            }
+
+            hideXmlLoading();
+            const details = [`${files.length} fichier(s) traité(s) : ${files.map(file => file.name).join(', ')}`];
+            if (addedTableNames.length > 0) {
+                details.push(`${addedTableNames.length} table(s) ajoutée(s) : ${addedTableNames.join(', ')}`);
+            }
+            if (existingTableNames.length > 0) {
+                details.push(`${existingTableNames.length} table(s) déjà présente(s), ignorée(s) : ${existingTableNames.join(', ')}`);
+            }
+            if (addedTableNames.length === 0 && existingTableNames.length === 0 && errors.length === 0) {
+                details.push('Aucune table trouvée dans les fichiers.');
+            }
+            if (errors.length > 0) details.push(`Erreurs : ${errors.join(' · ')}`);
+            showXmlImportNotification(
+                details.join(' · '),
+                errors.length > 0 ? 'Import terminé avec des erreurs' : 'Import XML réussi'
+            );
+        }
+
+        function readXmlFile(file, onProgress) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onprogress = progressEvent => {
+                    if (progressEvent.lengthComputable) onProgress(progressEvent.loaded / progressEvent.total);
+                };
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(reader.error || new Error('Impossible de lire ce fichier XML.'));
+                reader.onabort = () => reject(new Error('Lecture du fichier annulée.'));
+                reader.readAsText(file, 'UTF-8');
+            });
         }
 
         function showXmlLoading(message, progress) {
@@ -681,7 +747,7 @@
         }
 
         // Parser le XML avec DOMParser et peupler l'application
-        function loadXMLFromString(xmlString, fileName, showNotification = true) {
+        function loadXMLFromString(xmlString, fileName, showNotification = true, throwOnError = false) {
             try {
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(xmlString, "text/xml");
@@ -689,8 +755,7 @@
                 // Vérifier les erreurs de parsing
                 const parseError = xmlDoc.getElementsByTagName("parsererror");
                 if (parseError.length > 0) {
-                    alert("Erreur de syntaxe XML détectée dans le fichier.");
-                    return;
+                    throw new Error('Erreur de syntaxe XML détectée dans le fichier.');
                 }
 
                 appState.fileName = fileName;
@@ -760,14 +825,18 @@
                     details.unshift(`Fichier : ${fileName}`);
                     showXmlImportNotification(details.join(' · '));
                 }
+                return { addedTableNames, existingTableNames };
 
             } catch (err) {
                 console.error(err);
+                if (throwOnError) throw err;
                 alert("Erreur lors du traitement du fichier XML : " + err.message);
+                return null;
             }
         }
 
-        function showXmlImportNotification(details) {
+        function showXmlImportNotification(details, title = 'Import XML réussi') {
+            document.getElementById('xmlImportNotificationTitle').textContent = title;
             document.getElementById('xmlImportNotificationDetails').textContent = details;
             document.getElementById('xmlImportNotification').classList.remove('hidden');
             document.getElementById('xmlImportNotification').classList.add('flex');
@@ -1181,6 +1250,8 @@
             appState.joins = [];
             appState.queryGridRows = [];
             activeQueryId = null;
+            activeSqlText = null;
+            updateSqlButtonState();
 
             initQueryGrid();
             refreshNavigationPane();
@@ -1789,6 +1860,88 @@
                 const fieldElement = document.getElementById(`field_${queryRow.table}_${queryRow.field}`);
                 if (fieldElement) fieldElement.classList.add('query-field-selected');
             });
+        }
+
+        function quoteSqlIdentifier(identifier) {
+            return `[${String(identifier).replace(/\]/g, ']]')}]`;
+        }
+
+        function queryFieldToSql(queryRow) {
+            return queryRow.table
+                ? `${quoteSqlIdentifier(queryRow.table)}.${quoteSqlIdentifier(queryRow.field)}`
+                : quoteSqlIdentifier(queryRow.field);
+        }
+
+        function criteriaToSql(criteria) {
+            const value = criteria.trim();
+            const comparison = value.match(/^(<=|>=|<>|=|<|>)\s*(.*)$/);
+            if (comparison) return `${comparison[1]} ${comparison[2]}`;
+            if (/^(LIKE\b|IS\b|IN\b)/i.test(value)) return value;
+            return `LIKE "*${value.replace(/"/g, '""')}*"`;
+        }
+
+        function generateQuerySql() {
+            const tableNames = Object.keys(appState.tables);
+            if (tableNames.length === 0) return '-- Aucune table n’est chargée.';
+
+            const selectedFields = appState.queryGridRows.filter(row => row.show && row.field);
+            const selectLines = selectedFields.length > 0
+                ? selectedFields.map(row => {
+                    const alias = row.alias ? ` AS ${quoteSqlIdentifier(row.alias)}` : '';
+                    return `    ${queryFieldToSql(row)}${alias}`;
+                })
+                : ['    *'];
+            const sqlLines = ['SELECT', selectLines.join(',\n'), `FROM ${quoteSqlIdentifier(tableNames[0])}`];
+
+            appState.joins.forEach(join => {
+                if (!appState.tables[join.fromTable] || !appState.tables[join.toTable]) return;
+                const joinType = ['INNER', 'LEFT', 'RIGHT'].includes(join.type) ? join.type : 'INNER';
+                sqlLines.push(
+                    `${joinType} JOIN ${quoteSqlIdentifier(join.toTable)} ON ${quoteSqlIdentifier(join.fromTable)}.${quoteSqlIdentifier(join.fromField)} = ${quoteSqlIdentifier(join.toTable)}.${quoteSqlIdentifier(join.toField)}`
+                );
+            });
+
+            const criteriaGroups = appState.queryGridRows
+                .filter(row => row.field && (row.criteria.trim() || row.or.trim()))
+                .map(row => {
+                    const field = queryFieldToSql(row);
+                    const alternatives = [row.criteria, row.or]
+                        .map(criteria => criteria.trim())
+                        .filter(Boolean)
+                        .map(criteria => `${field} ${criteriaToSql(criteria)}`);
+                    return alternatives.length > 1 ? `(${alternatives.join(' OR ')})` : alternatives[0];
+                });
+            if (criteriaGroups.length > 0) sqlLines.push(`WHERE ${criteriaGroups.join('\n  AND ')}`);
+
+            const sortFields = appState.queryGridRows.filter(row => row.field && row.sort);
+            if (sortFields.length > 0) {
+                sqlLines.push(`ORDER BY ${sortFields.map(row => `${queryFieldToSql(row)} ${row.sort === 'DESC' ? 'DESC' : 'ASC'}`).join(', ')}`);
+            }
+            return `${sqlLines.join('\n')}\n;`;
+        }
+
+        function showSqlView() {
+            if (!savedQueries.some(query => query.id === activeQueryId)) return;
+            document.getElementById('sqlQueryText').value = activeSqlText !== null ? activeSqlText : generateQuerySql();
+            const modal = document.getElementById('sqlViewModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function updateSqlEditorState() {
+            activeSqlText = document.getElementById('sqlQueryText').value;
+            updateSaveButtonState();
+        }
+
+        function saveSqlView() {
+            updateSqlEditorState();
+            if (saveCurrentQuery()) closeSqlView();
+        }
+
+        function closeSqlView() {
+            const modal = document.getElementById('sqlViewModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
         }
 
         // Exécuter et afficher les résultats de la requête (Datasheet View)
